@@ -20,7 +20,7 @@ bucket_name = "annotate-screenshots"
 
 [vars]
 # Public base URL of this Worker; used for Trello return_url, webhook callbacks and signed screenshot URLs.
-PUBLIC_URL = "http://localhost:8787"
+PUBLIC_URL = "https://annotate.pierre-51f.workers.dev"
 # Trello workspace (organization) id whose members may connect boards. Empty = anyone (dev only).
 ALLOWED_TRELLO_ORG = ""
 # "1" = in-memory fake Trello + /dev routes. Local only: set it in .dev.vars, never here.
