@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { CliResult } from '@annotate/shared';
 import { describe, expect, it } from 'vitest';
@@ -94,6 +94,18 @@ describe('connect / init hand-off', () => {
     expect(out).toMatchObject({ configPath: path.join(cwd, '.annotate.json'), projectKey: 'pk_new', accessKey: 'ak_new', gitignore: [] });
     expect(r.stdout).not.toContain('at_new');
     expect(r.stderr).toContain('https://annotate.test/connect?cli=sess_1');
+  });
+
+  it('init from a subfolder writes the config at the git root, so it is found from the repo root', async () => {
+    const root = tmpDir();
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    const sub = path.join(root, 'wp-content', 'themes', 'site');
+    mkdirSync(sub, { recursive: true });
+    const fetch = sessionServer([{ status: 200, body: { status: 'done', result } }]);
+    const r = await runCli(['init', '--json', '--no-open'], { cwd: sub, env, fetch, openUrl: () => true });
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.stdout).configPath).toBe(path.join(root, '.annotate.json'));
+    expect(() => statSync(path.join(sub, '.annotate.json'))).toThrow();
   });
 
   it('410 → exit 1, nothing written', async () => {

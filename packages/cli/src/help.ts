@@ -52,7 +52,7 @@ export const COMMAND_HELP: Record<string, string> = {
   connect: `Usage: annotate connect [--site <url>] [--no-open]
 
 Create a project on a new Trello board. Opens the browser (the URL is printed too), waits up to
-15 min for you to finish, then writes .annotate.json (mode 0600) in the cwd, adds it to the repo's
+15 min for you to finish, then writes .annotate.json (mode 0600) at the git root (else the cwd), adds it to the repo's
 .gitignore, and prints the widget embed snippet.
 
   --site <url>   Prefill the site URL
@@ -64,7 +64,7 @@ Exit codes: 0 connected · 1 expired, timed out or network · 5 verifier rejecte
   init: `Usage: annotate init [--no-open]
 
 Link this repo to an existing project (one your Trello account can access). Same browser
-hand-off as connect; writes .annotate.json (mode 0600) in the cwd and adds it to .gitignore.
+hand-off as connect; writes .annotate.json (mode 0600) at the git root (else the cwd) and adds it to .gitignore.
 
   --no-open      Don't open the browser; just print the URL
   --json         {configPath, endpoint, projectKey, projectName, boardName, boardUrl, origins, accessKey, gitignore}

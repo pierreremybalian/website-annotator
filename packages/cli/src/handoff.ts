@@ -117,8 +117,10 @@ export async function runHandoff(ctx: Ctx, opts: HandoffOptions): Promise<Handof
     boardName: result.boardName,
     boardUrl: result.boardUrl,
   };
-  const configPath = writeConfig(ctx.cwd, config);
-  const ignored = ensureGitignored(ctx.cwd);
+  // The repo root, so agents find it from anywhere in the repo (config lookup only walks up).
+  const configDir = findGitRoot(ctx.cwd) ?? ctx.cwd;
+  const configPath = writeConfig(configDir, config);
+  const ignored = ensureGitignored(configDir);
   return {
     configPath,
     endpoint,

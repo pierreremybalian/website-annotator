@@ -25,7 +25,7 @@ annotate skill install
 
 - `connect` creates a project on a new Trello board. `init` links the repo to an existing project.
 - Both open the browser and print the link too (`--no-open` skips the browser). They wait up to 15 minutes for you to finish there.
-- When you're done, they write `.annotate.json` (mode 0600) to the current directory and add it, plus `.annotate/screenshots/`, to the repo's `.gitignore`. They also print the widget embed snippet, the Astro setup and the activation link.
+- When you're done, they write `.annotate.json` (mode 0600) to the git root (or the current directory outside git), so it's found from anywhere in the repo, and add it, plus `.annotate/screenshots/`, to the repo's `.gitignore`. They also print the widget embed snippet, the Astro setup and the activation link.
 - `skill install` installs the Claude Code skill (see [Skill](#skill)).
 
 The CLI never sees a Trello token. The hand-off works like a device login:
