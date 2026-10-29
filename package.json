@@ -1,0 +1,17 @@
+{
+  "name": "annotate",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "build": "pnpm --filter @annotate/widget build",
+    "dev:worker": "pnpm --filter @annotate/worker dev",
+    "dev:widget": "pnpm --filter @annotate/widget dev",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "typescript": "^7.0.2"
+  }
+}

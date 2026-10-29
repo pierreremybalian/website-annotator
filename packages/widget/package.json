@@ -1,0 +1,24 @@
+{
+  "name": "@annotate/widget",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@annotate/shared": "workspace:*",
+    "@medv/finder": "^4.0.2",
+    "@zumer/snapdom": "^3.6.0",
+    "preact": "^11.1.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "happy-dom": "^21.0.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "~4.1.12"
+  }
+}

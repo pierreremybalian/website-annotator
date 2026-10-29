@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+packages/worker/public/widget.js
+test-results/
+playwright-report/
+.DS_Store

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Harbor &amp; Pine: Annotate test page</title>
+  <script>
+    // Same shape as the WP plugin's inline <head> catcher, so the widget's merge/dedupe gets exercised.
+    (function () {
+      var buf = (window.__annotateErrors = window.__annotateErrors || []);
+      function add(kind, message, stack) {
+        buf.push({ kind: kind, message: String(message).slice(0, 1000), stack: stack, at: Date.now() });
+        if (buf.length > 20) buf.shift();
+      }
+      window.addEventListener('error', function (e) { add('error', e.message, e.error && e.error.stack); });
+      window.addEventListener('unhandledrejection', function (e) { add('unhandledrejection', e.reason && e.reason.message || e.reason, e.reason && e.reason.stack); });
+      var ce = console.error;
+      console.error = function () { add('console.error', Array.prototype.join.call(arguments, ' ')); return ce.apply(console, arguments); };
+    })();
+    console.error('dev page: early error logged before the widget loaded');
+  </script>
+  <style>
+    :root { --ink: #1d2433; --muted: #5d6677; --brand: #0f6e5c; --bg: #fbfaf7; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 17px/1.65 Georgia, "Times New Roman", serif; color: var(--ink); background: var(--bg); }
+    header.site {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 50; height: 64px;
+      display: flex; align-items: center; justify-content: space-between; padding: 0 32px;
+      background: #13261f; color: #fff; font-family: system-ui, sans-serif; box-shadow: 0 2px 12px rgba(0,0,0,.2);
+    }
+    header.site .logo { font-weight: 700; letter-spacing: .04em; }
+    header.site nav a { color: #cfe8df; margin-left: 24px; text-decoration: none; font-size: 15px; }
+    header.site .cta { background: #f2c14e; color: #13261f; padding: 8px 14px; border-radius: 6px; font-weight: 600; }
+    main { padding-top: 64px; }
+    .hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 40px; align-items: center; padding: 64px 32px; max-width: 1180px; margin: 0 auto; }
+    .hero h1 { font-size: 52px; line-height: 1.05; margin: 0 0 16px; }
+    .hero p { color: var(--muted); font-size: 19px; }
+    .hero .imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .hero figure { margin: 0; }
+    .hero img { width: 100%; height: 220px; object-fit: cover; border-radius: 10px; display: block; background: #ddd; }
+    .hero figcaption { font: 12px/1.4 system-ui, sans-serif; color: var(--muted); margin-top: 6px; }
+    .btn { display: inline-block; background: var(--brand); color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-family: system-ui, sans-serif; font-weight: 600; }
+    section { max-width: 1180px; margin: 0 auto; padding: 40px 32px; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .card { background: #fff; border: 1px solid #e7e3da; border-radius: 12px; padding: 24px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .card h3 { margin: 0 0 8px; font-family: system-ui, sans-serif; }
+    .card .tag { display: inline-block; font: 600 12px system-ui, sans-serif; color: var(--brand); background: #e3f2ec; padding: 2px 8px; border-radius: 99px; }
+    .video { aspect-ratio: 16 / 9; width: 100%; max-width: 760px; border: 0; border-radius: 12px; display: block; background: #000; }
+    .prose { max-width: 720px; }
+    .sticky-note { position: sticky; top: 80px; float: right; width: 220px; margin: 0 0 16px 24px; padding: 14px; background: #fff7d6; border: 1px solid #efd98a; border-radius: 8px; font: 14px/1.5 system-ui, sans-serif; }
+    footer { background: #13261f; color: #cfe8df; padding: 40px 32px; font-family: system-ui, sans-serif; }
+    @media (max-width: 800px) { .hero, .cards { grid-template-columns: 1fr; } header.site nav { display: none; } }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <div class="logo">HARBOR &amp; PINE</div>
+    <nav>
+      <a href="#services">Services</a><a href="#work">Work</a><a href="#about">About</a>
+      <a class="cta" href="#contact">Book a call</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div>
+        <h1>Landscapes that age beautifully.</h1>
+        <p>We design and build gardens for coastal homes: native planting, dry-stone walls and outdoor rooms that look better every year.</p>
+        <a class="btn" href="#contact">Start a project</a>
+        <button id="throw" class="btn" style="border:0;cursor:pointer;margin-left:8px;background:#8a2d1c">Throw an error</button>
+      </div>
+      <div class="imgs">
+        <figure>
+          <img alt="Inline SVG" src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300' viewBox='0 0 400 300'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%2387c5e8'/%3E%3Cstop offset='1' stop-color='%23f6e7c1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='400' height='300' fill='url(%23g)'/%3E%3Ccircle cx='310' cy='70' r='34' fill='%23f2c14e'/%3E%3Cpath d='M0 230 L90 150 L170 210 L250 130 L400 240 L400 300 L0 300Z' fill='%230f6e5c'/%3E%3Cpath d='M0 260 L120 210 L230 250 L330 200 L400 230 L400 300 L0 300Z' fill='%2313261f'/%3E%3C/svg%3E" />
+          <figcaption>data: SVG (same-origin)</figcaption>
+        </figure>
+        <figure>
+          <img alt="picsum" src="https://picsum.photos/id/1018/600/440" />
+          <figcaption>picsum.photos (cross-origin, CORS *)</figcaption>
+        </figure>
+        <figure style="grid-column: span 2">
+          <img alt="no CORS" style="height:120px;object-fit:contain;background:#fff" src="https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png" />
+          <figcaption>google.com logo (cross-origin, no CORS header)</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <section id="services">
+      <h2>What we do</h2>
+      <div class="cards">
+        <div class="card"><span class="tag">Design</span><h3>Garden design</h3><p>Site survey, concept plans and planting schedules tuned to salt air and sandy soil.</p></div>
+        <div class="card"><span class="tag">Build</span><h3>Hard landscaping</h3><p>Dry-stone walls, reclaimed-timber decks and permeable paths, built by our own crew.</p></div>
+        <div class="card"><span class="tag">Care</span><h3>Seasonal care</h3><p>Four visits a year to prune, mulch and adjust irrigation as the garden matures.</p></div>
+        <div class="card"><span class="tag">Water</span><h3>Rain gardens</h3><p>Swales and soakaways that keep storm water on site and feed the planting.</p></div>
+        <div class="card"><span class="tag">Light</span><h3>Outdoor lighting</h3><p>Low-glare, warm-white lighting that keeps the night sky dark.</p></div>
+        <div class="card"><span class="tag">Play</span><h3>Family spaces</h3><p>Natural play areas, kitchen gardens and somewhere to sit when the kids are done.</p></div>
+      </div>
+    </section>
+
+    <section id="work">
+      <h2>See a build from start to finish</h2>
+      <iframe class="video" src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="YouTube video" allow="accelerometer; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+    </section>
+
+    <section id="about" class="prose">
+      <aside class="sticky-note"><strong>Sticky note.</strong> This box uses <code>position: sticky</code> and should stay near the top while you scroll this section.</aside>
+      <h2>About the studio</h2>
+      <p>Harbor &amp; Pine started in 2009 with one truck and a stubborn belief that coastal gardens should work with the weather rather than against it. Fifteen years later we are a team of twelve designers, builders and horticulturists, and we still visit every site in person before we draw a single line.</p>
+      <p>Most of our work is residential: front gardens that need to greet the street, back gardens that need to host a dozen people on a summer evening, and the awkward side passages nobody knows what to do with. We also take on a handful of small commercial projects each year, usually cafés and boutique hotels that want planting with some character.</p>
+      <p>Our planting palette leans heavily on natives and on plants that have proven themselves within a few miles of the sea. That means grasses that move in the wind, shrubs that shrug off salt spray and perennials that flower for months. We avoid anything that needs constant watering, and we design irrigation as a backup rather than a life-support system.</p>
+      <p>Hard landscaping is where a garden earns its structure. We work with local stone wherever we can, reuse what is already on site, and specify timber from certified sources. Paths are permeable by default, walls are built dry so they can flex with the ground, and every deck is designed to be repaired board by board rather than replaced.</p>
+      <h3>How a project runs</h3>
+      <p>Every project starts with a site visit and a conversation about how you actually use your outdoor space. From there we produce a concept plan, refine it with you over one or two rounds, and then move into detailed drawings and a fixed-price quote. Builds typically take between three and twelve weeks depending on scale.</p>
+      <p>Once the build is done we hand over a care guide written for your garden specifically, and most clients choose to keep us on for seasonal visits during the first two years while the planting establishes. After that, plenty of gardens need very little from us at all, which is exactly the point.</p>
+      <p>We are often asked whether a garden can look finished on day one. The honest answer is that a good garden never looks finished: it looks promising on day one, settled after a year, and properly itself after three. We plant at densities that fill in quickly, but we leave room for things to grow into their space rather than cramming them in for the photos.</p>
+      <h3>Sustainability</h3>
+      <p>We track the embodied carbon of the materials on every build and publish an annual summary. Our biggest wins have come from reusing excavated soil on site, specifying reclaimed stone and timber, and switching our crew vans to electric. We still have work to do on plastic plant pots and on the diesel machinery we hire for larger digs.</p>
+      <p>Peat-free compost is standard, we never use synthetic pesticides, and we leave at least one corner of every garden a little wild for insects and birds. Clients are sometimes nervous about that last one, and almost all of them end up asking for more of it.</p>
+      <p>Water is the other big theme. Coastal sites can be dry for long stretches and then flooded in a single storm, so we design for both: deep-rooted planting that copes with drought, and rain gardens, swales and soakaways that slow down storm water and let it soak into the ground rather than running off into the drains.</p>
+      <h3>Working with us</h3>
+      <p>We book design work about six weeks ahead and builds about three months ahead, with spring being the busiest season by far. If you are thinking about a project for next year, autumn is a great time to get in touch: there is time to design properly and to get materials ordered before the rush.</p>
+      <p>We cover the coast and roughly forty miles inland. If you are further afield, we are happy to recommend designers we trust. We do not do one-off maintenance visits for gardens we did not build, but we can point you to good local gardeners who do.</p>
+      <p>Thanks for reading this far. If any of this sounds like the way you would like your garden to be looked after, we would love to hear from you.</p>
+    </section>
+
+    <section id="contact">
+      <h2>Book a call</h2>
+      <p class="prose">Tell us a little about your garden and we will get back to you within two working days.</p>
+      <form onsubmit="return false" style="display:grid;gap:12px;max-width:480px;font-family:system-ui,sans-serif">
+        <input placeholder="Your name" style="padding:10px;border:1px solid #ccc;border-radius:6px" />
+        <input placeholder="Email" style="padding:10px;border:1px solid #ccc;border-radius:6px" />
+        <textarea placeholder="About your garden" rows="4" style="padding:10px;border:1px solid #ccc;border-radius:6px"></textarea>
+        <button class="btn" style="border:0">Send</button>
+      </form>
+    </section>
+  </main>
+
+  <footer>© Harbor &amp; Pine Landscapes · Dev test page for the Annotate widget</footer>
+
+  <script>
+    document.getElementById('throw').addEventListener('click', function () {
+      setTimeout(function () { null.boom(); });
+    });
+  </script>
+  <script type="module" src="/src/index.ts" data-endpoint="http://localhost:8787" data-project="dev-project" data-access="dev-access" data-always-on></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+name = "annotate"
+main = "src/index.ts"
+compatibility_date = "2026-08-15"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "annotate"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "SCREENSHOTS"
+bucket_name = "annotate-screenshots"
+
+[vars]
+# Public base URL of this Worker; used for Trello return_url, webhook callbacks and signed screenshot URLs.
+PUBLIC_URL = "http://localhost:8787"
+# Trello workspace (organization) id whose members may connect boards. Empty = anyone (dev only).
+ALLOWED_TRELLO_ORG = ""
+# "1" = in-memory fake Trello + /dev routes. Local only: set it in .dev.vars, never here.
+TRELLO_MOCK = "0"
+
+# Secrets (wrangler secret put ... / .dev.vars locally):
+#   TRELLO_KEY, TRELLO_SECRET, TOKEN_ENC_KEY (base64, 32 bytes), SIGNING_SECRET

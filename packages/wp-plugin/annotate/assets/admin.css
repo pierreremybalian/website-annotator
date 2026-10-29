@@ -1,0 +1,96 @@
+.annotate-wrap .annotate-card {
+	max-width: 720px;
+	margin: 20px 0 8px;
+	padding: 20px 24px;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.annotate-wrap .annotate-card h2 {
+	margin-top: 0;
+	font-size: 1.3em;
+}
+
+.annotate-wrap .annotate-check {
+	margin-left: 4px;
+	color: #00a32a;
+}
+
+.annotate-wrap .annotate-count {
+	margin: 0;
+	color: #50575e;
+}
+
+.annotate-wrap .annotate-card .notice.inline {
+	margin: 0 0 4px;
+}
+
+.annotate-wrap .annotate-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	margin: 16px 0 0;
+}
+
+.annotate-wrap .button.annotate-disconnect {
+	color: #b32d2e;
+	border-color: #b32d2e;
+}
+
+.annotate-wrap .button.annotate-disconnect:hover,
+.annotate-wrap .button.annotate-disconnect:focus {
+	color: #8a2424;
+	border-color: #8a2424;
+}
+
+.annotate-wrap .annotate-message:empty {
+	display: none;
+}
+
+.annotate-wrap .annotate-message {
+	margin: 12px 0 0;
+}
+
+.annotate-wrap .annotate-message.is-error {
+	color: #d63638;
+}
+
+.annotate-wrap .annotate-popup-blocked {
+	margin: 12px 0 0;
+	padding: 8px 12px;
+	background: #fcf9e8;
+	border-left: 4px solid #dba617;
+}
+
+.annotate-wrap .annotate-access-link {
+	margin-top: 16px;
+}
+
+.annotate-wrap .annotate-access-link[hidden],
+.annotate-wrap .annotate-popup-blocked[hidden] {
+	display: none;
+}
+
+.annotate-wrap .annotate-link-field {
+	display: flex;
+	gap: 8px;
+	max-width: 640px;
+}
+
+.annotate-wrap .annotate-link-field input {
+	flex: 1;
+	min-width: 0;
+}
+
+.annotate-wrap .annotate-advanced {
+	margin-top: 8px;
+}
+
+.annotate-wrap .annotate-advanced summary {
+	cursor: pointer;
+	font-weight: 600;
+	padding: 8px 0;
+}
