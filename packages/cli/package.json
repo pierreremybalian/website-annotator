@@ -1,0 +1,25 @@
+{
+  "name": "@annotate/cli",
+  "version": "0.2.0",
+  "private": true,
+  "author": "Pierre Balian (https://balian.dev)",
+  "homepage": "https://github.com/pierreremybalian/website-annotator#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/pierreremybalian/website-annotator.git" },
+  "bugs": "https://github.com/pierreremybalian/website-annotator/issues",
+  "type": "module",
+  "bin": { "annotate": "dist/annotate.mjs" },
+  "files": ["dist"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@annotate/shared": "workspace:*",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "~4.1.12"
+  }
+}

@@ -41,3 +41,15 @@ export function safeEqual(a: string, b: string): boolean {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
+
+/** Hex SHA-256 — used to store agent tokens (never stored in plaintext). */
+export async function sha256Hex(data: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** base64url SHA-256 — used for the CLI hand-off verifier (matches CliSessionRequest.verifierHash). */
+export async function sha256Base64Url(data: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return b64(digest).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}

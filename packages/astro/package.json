@@ -1,0 +1,28 @@
+{
+  "name": "@annotate/astro",
+  "version": "0.2.0",
+  "private": true,
+  "author": "Pierre Balian (https://balian.dev)",
+  "homepage": "https://github.com/pierreremybalian/website-annotator#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/pierreremybalian/website-annotator.git" },
+  "bugs": "https://github.com/pierreremybalian/website-annotator/issues",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "keywords": ["astro-integration", "feedback", "qa"],
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "astro": ">=4"
+  },
+  "devDependencies": {
+    "@annotate/shared": "workspace:*",
+    "@types/node": "^24.0.0",
+    "astro": "^7.4.4",
+    "typescript": "^7.0.2",
+    "vitest": "~4.1.12"
+  }
+}

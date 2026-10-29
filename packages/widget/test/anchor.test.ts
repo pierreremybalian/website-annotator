@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Rect } from '@annotate/shared';
-import { createAnchor, isStableClass, isStableId, resolveAnchor } from '../src/capture/anchor';
+import type { Anchor } from '@annotate/shared';
+import {
+  createAnchor,
+  createElementAnchor,
+  isStableClass,
+  isStableId,
+  matchAnchor,
+  rectForAnchor,
+  resolveAnchor,
+} from '../src/capture/anchor';
+import { childToward, describeElement, pageElementAt, parentTarget, smartTarget, snapTarget } from '../src/ui/Selector';
 
 // happy-dom has no layout engine: give each element a fake box and hit-test those boxes ourselves.
 interface Placed {
@@ -118,6 +128,7 @@ describe('createAnchor', () => {
     expect(a.relative!.y).toBeCloseTo(15 / 200);
     expect(a.relative!.width).toBeCloseTo(280 / 300);
     expect(a.relative!.height).toBeCloseTo(60 / 200);
+    expect(a.mode).toBe('area');
     expect(a.absolute).toEqual(sel);
     expect(a.viewportWidth).toBe(window.innerWidth);
     expect(a.text).toBe('Welcome to the Acme widget store, where everything is fine. Buy now');
@@ -244,10 +255,17 @@ describe('resolveAnchor', () => {
     expect(resolveAnchor(a).detached).toBe(false);
   });
 
-  it('falls back when the element has no size (hidden)', () => {
+  it('reports hidden (not detached) when the element has no size', () => {
     const a = createAnchor({ x: 110, y: 165, width: 280, height: 60 }, host);
     move(q('.card'), { x: 0, y: 0, width: 0, height: 0 });
-    expect(resolveAnchor(a).detached).toBe(true);
+    const r = resolveAnchor(a);
+    expect(r.hidden).toBe(true);
+    expect(r.detached).toBe(false);
+  });
+
+  it('is neither hidden nor detached when the element is found and visible', () => {
+    const r = resolveAnchor(createAnchor({ x: 110, y: 165, width: 280, height: 60 }, host));
+    expect(r).toMatchObject({ detached: false, hidden: false });
   });
 
   it('survives an invalid stored selector', () => {
@@ -255,5 +273,147 @@ describe('resolveAnchor', () => {
     const r = resolveAnchor({ ...a, selector: 'div[' });
     expect(r.detached).toBe(true);
     expect(r.rect).toEqual(a.absolute);
+  });
+});
+
+describe('createElementAnchor', () => {
+  it('anchors to exactly the element: mode element, relative 0,0,1,1, absolute = rect + scroll', () => {
+    window.scrollTo(0, 250);
+    const a = createElementAnchor(q('.card'));
+    expect(a.mode).toBe('element');
+    expect(document.querySelector(a.selector!)).toBe(q('.card'));
+    expect(a.relative).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+    expect(a.absolute).toEqual({ x: 100, y: 400, width: 300, height: 200 });
+    expect(a.viewportWidth).toBe(window.innerWidth);
+    expect(a.text).toBe('Welcome to the Acme widget store, where everything is fine. Buy now');
+  });
+
+  it('uses the same selector hygiene as area anchors', () => {
+    const card = q('.card');
+    card.className = 'card css-1q2w3e4 is-active';
+    q('section').append(el('<div class="card other"></div>'));
+    const a = createElementAnchor(card);
+    expect(document.querySelector(a.selector!)).toBe(card);
+    expect(a.selector).not.toContain('css-');
+    expect(a.selector).not.toContain('is-active');
+  });
+
+  it('records no text for body', () => {
+    const a = createElementAnchor(document.body);
+    expect(a.selector).toBe('body');
+    expect(a.text).toBe('');
+  });
+});
+
+describe('resolveAnchor, element mode', () => {
+  it("returns the element's current rect exactly after it moves and resizes", () => {
+    const a = createElementAnchor(q('.lede'));
+    move(q('.lede'), { x: 33.5, y: 900.25, width: 701, height: 87 });
+    expect(resolveAnchor(a)).toEqual({ rect: { x: 33.5, y: 900.25, width: 701, height: 87 }, detached: false, hidden: false });
+  });
+
+  it('is hidden when the element exists but has no box at this size', () => {
+    const a = createElementAnchor(q('.cta'));
+    move(q('.cta'), { x: 0, y: 0, width: 0, height: 0 });
+    const r = resolveAnchor(a);
+    expect(r.hidden).toBe(true);
+    expect(r.detached).toBe(false);
+  });
+
+  it('is hidden when the element is visibility:hidden', () => {
+    const a = createElementAnchor(q('.cta'));
+    q('.cta').style.visibility = 'hidden';
+    expect(resolveAnchor(a).hidden).toBe(true);
+  });
+
+  it('is detached, not hidden, when the text changed, even if the element is also hidden', () => {
+    const a = createElementAnchor(q('.lede'));
+    q('.lede').textContent = 'Totally new copy';
+    move(q('.lede'), { x: 0, y: 0, width: 0, height: 0 });
+    const r = resolveAnchor(a);
+    expect(r).toMatchObject({ detached: true, hidden: false });
+    expect(r.rect).toEqual({ x: 120, y: 170, width: 260, height: 40 });
+  });
+
+  it('is detached when the element is gone', () => {
+    const a = createElementAnchor(q('.cta'));
+    q('.cta').remove();
+    window.scrollTo(0, 50);
+    expect(resolveAnchor(a)).toEqual({ rect: { x: 120, y: 230, width: 100, height: 30 }, detached: true, hidden: false });
+  });
+
+  it('matchAnchor + rectForAnchor agree with resolveAnchor', () => {
+    const a = createElementAnchor(q('.card'));
+    const found = matchAnchor(a);
+    expect(found).toBe(q('.card'));
+    expect(rectForAnchor(a, found)).toEqual(resolveAnchor(a));
+    expect(rectForAnchor(a, null)).toMatchObject({ detached: true, hidden: false });
+  });
+});
+
+describe('pre-0.2 anchors (no mode)', () => {
+  it('resolve as area anchors: fractions of the element', () => {
+    const legacy: Anchor = {
+      selector: 'main > section > div',
+      relative: { x: 0.1, y: 0.25, width: 0.5, height: 0.5 },
+      absolute: { x: 130, y: 200, width: 150, height: 100 },
+      viewportWidth: 1440,
+      text: 'Welcome to the Acme',
+    };
+    expect(legacy.mode).toBeUndefined();
+    move(q('.card'), { x: 0, y: 0, width: 400, height: 400 });
+    expect(resolveAnchor(legacy)).toEqual({ rect: { x: 40, y: 100, width: 200, height: 200 }, detached: false, hidden: false });
+  });
+
+  it('still fall back to the absolute rect when the selector is null', () => {
+    const legacy: Anchor = {
+      selector: null,
+      relative: null,
+      absolute: { x: 10, y: 20, width: 30, height: 40 },
+      viewportWidth: 1440,
+      text: '',
+    };
+    expect(resolveAnchor(legacy)).toEqual({ rect: { x: 10, y: 20, width: 30, height: 40 }, detached: true, hidden: false });
+  });
+});
+
+describe('picking helpers (Selector)', () => {
+  it('smart target skips tiny and inline-only elements, but not links', () => {
+    // happy-dom has no UA stylesheet for inline elements, so say it explicitly.
+    q('.lede').innerHTML = 'Welcome <span class="w" style="display:inline">to</span> the <em class="icon">*</em> store';
+    place(q('.w'), { x: 190, y: 172, width: 20, height: 20 });
+    place(q('.icon'), { x: 230, y: 175, width: 10, height: 10 });
+    expect(smartTarget(q('.w'))).toBe(q('.lede')); // display:inline span
+    expect(smartTarget(q('.icon'))).toBe(q('.lede')); // under 16×16
+    expect(smartTarget(q('.cta'))).toBe(q('.cta')); // <a> is fine inline
+    expect(smartTarget(q('.lede'))).toBe(q('.lede'));
+  });
+
+  it('elementAt skips the widget host; parent/child walk the tree', () => {
+    expect(pageElementAt(150, 290, host)).toBe(q('.cta'));
+    expect(parentTarget(q('.cta'))).toBe(q('.card'));
+    expect(parentTarget(document.body)).toBe(document.body);
+    expect(childToward(q('section'), q('.cta'))).toBe(q('.card'));
+    expect(childToward(q('.card'), q('.cta'))).toBe(q('.cta'));
+    expect(childToward(q('.cta'), q('.cta'))).toBeNull();
+  });
+
+  it('snaps a drawn box to an element it covers ≥80% when the element is ≤1.25× the box', () => {
+    // .card is 300×200 at (100,150). A box just inside it covers 90%+ of it.
+    expect(snapTarget({ x: 105, y: 155, width: 290, height: 190 }, host)).toBe(q('.card'));
+    // A box a bit bigger than the card still snaps (card area ≤ 1.25× box, fully covered).
+    expect(snapTarget({ x: 95, y: 145, width: 310, height: 210 }, host)).toBe(q('.card'));
+  });
+
+  it('does not snap a free area', () => {
+    // Half of the card: covers only 50% of it.
+    expect(snapTarget({ x: 100, y: 150, width: 150, height: 200 }, host)).toBeNull();
+    // Empty space in the section, much smaller than the section.
+    expect(snapTarget({ x: 600, y: 200, width: 200, height: 150 }, host)).toBeNull();
+  });
+
+  it('describes elements briefly', () => {
+    expect(describeElement(q('.card'))).toBe('div.card');
+    expect(describeElement(q('main'))).toBe('main#content');
   });
 });

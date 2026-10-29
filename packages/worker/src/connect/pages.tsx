@@ -1,5 +1,5 @@
 /** @jsxImportSource hono/jsx */
-import { AlertIcon, CheckIcon, Data, Layout, LinkIcon, PlusIcon, Script, TrelloMark } from './layout';
+import { AlertIcon, CheckIcon, Data, Layout, LinkIcon, PlusIcon, Script, TerminalIcon, TrelloMark } from './layout';
 import { boardsJs, callbackJs } from './client';
 
 /** Same hash as the client script, so a board created in the page gets the same tile color later. */
@@ -19,9 +19,46 @@ const RequestedBy = (props: { host: string | null }) =>
     </div>
   ) : null;
 
+/** CLI mode: show that a terminal asked for this, and its label, so a lured link stands out. */
+const RequestedByTerminal = (props: { label: string | null }) => (
+  <div class="chip" title="The terminal that opened this page">
+    <TerminalIcon />
+    <span>
+      Requested by your terminal{props.label ? <> · <b>{props.label}</b></> : null}
+    </span>
+  </div>
+);
+
 // Step 1 ---------------------------------------------------------------------
 
-export const StartPage = (props: { nonce: string; siteName: string | null; openerHost: string | null; authorizeUrl: string; reconnect: boolean }) => {
+export const StartPage = (props: {
+  nonce: string;
+  siteName: string | null;
+  openerHost: string | null;
+  authorizeUrl: string;
+  reconnect: boolean;
+  /** Opened by the CLI (/connect?cli=…). */
+  cli: { label: string | null } | null;
+}) => {
+  if (props.cli) {
+    return (
+      <Layout title="Connect your terminal" nonce={props.nonce} step={1}>
+        <main>
+          <h1>Connect your terminal to Trello</h1>
+          <p class="lead">
+            Log in with Trello, then link an existing project or connect a new board. Your terminal gets a key for that project. Your Trello login stays
+            here.
+          </p>
+          <RequestedByTerminal label={props.cli.label} />
+          <a class="btn btn-trello" href={props.authorizeUrl} id="login">
+            <TrelloMark />
+            Log in with Trello
+          </a>
+          <p class="fine">Only continue if you just ran annotate in your own terminal. Whoever started this link gets access to the project you pick.</p>
+        </main>
+      </Layout>
+    );
+  }
   const site = props.siteName ?? 'your site';
   return (
     <Layout title="Connect to Trello" nonce={props.nonce} step={1}>
@@ -90,15 +127,83 @@ export interface BoardsPageProps {
   siteUrl: string | null;
   /** Reconnect: preselect the project's current board. */
   currentBoardId: string | null;
+  /** Opened by the CLI: also offer the existing projects; `mode` decides which section comes first. */
+  cli: { mode: 'connect' | 'link'; label: string | null; projects: LinkableProject[] } | null;
 }
 
-export const BoardsPage = (p: BoardsPageProps) => (
-  <Layout title="Choose a board" nonce={p.nonce} step={2}>
+export interface LinkableProject {
+  id: string;
+  name: string;
+  boardName: string;
+  origins: string[];
+}
+
+const LinkSection = (props: { projects: LinkableProject[]; first: boolean }) => (
+  <section class="section" aria-labelledby="linkTitle">
+    <h2 class="section-title" id="linkTitle">
+      Link an existing project
+    </h2>
+    {props.projects.length ? (
+      <div class="rows" id="projects">
+        {props.projects.map((pr) => (
+          <div class="row project">
+            <span class="tile" style={{ background: `hsl(${hue(pr.name)} 55% 48%)` }}>
+              {(pr.name.trim()[0] ?? '?').toUpperCase()}
+            </span>
+            <span class="name">
+              {pr.name}
+              <span class="sub">Board: {pr.boardName}</span>
+              <span class="sub">{pr.origins.length ? pr.origins.map((o) => o.replace(/^https?:\/\//, '')).join(', ') : 'No sites yet'}</span>
+            </span>
+            <button type="button" class="link-btn" data-link={pr.id} aria-label={`Link ${pr.name}`}>
+              Link
+            </button>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <p class="empty" id="noProjects">
+        No projects yet. Connect a new board {props.first ? 'below' : 'above'}.
+      </p>
+    )}
+  </section>
+);
+
+const createSub = (name: string) => `“${name}” with New, In progress, Ready for review and Done lists`;
+
+export const BoardsPage = (p: BoardsPageProps) => {
+  const linkFirst = p.cli?.mode === 'link';
+  const link = p.cli ? <LinkSection projects={p.cli.projects} first={linkFirst} /> : null;
+  const feedbackFrom = p.siteName ? <>Feedback from {p.siteName} will show up there as cards.</> : <>Feedback from your site will show up there as cards.</>;
+  return (
+  <Layout title={p.cli ? 'Connect your terminal' : 'Choose a board'} nonce={p.nonce} step={2}>
     <div id="picker">
       <main>
-        <h1>Choose a board</h1>
-        <p class="lead">{p.siteName ? <>Feedback from {p.siteName} will show up here as cards.</> : <>Feedback from your site will show up here as cards.</>}</p>
-        <RequestedBy host={p.openerHost} />
+        {p.cli ? (
+          <>
+            <h1>Connect your terminal</h1>
+            <p class="lead">
+              {linkFirst ? 'Link an existing project, or connect a new Trello board.' : 'Connect a new Trello board, or link an existing project.'} Your terminal gets
+              a key for the project you choose.
+            </p>
+            <RequestedByTerminal label={p.cli.label} />
+          </>
+        ) : (
+          <>
+            <h1>Choose a board</h1>
+            <p class="lead">{p.siteName ? <>Feedback from {p.siteName} will show up here as cards.</> : <>Feedback from your site will show up here as cards.</>}</p>
+            <RequestedBy host={p.openerHost} />
+          </>
+        )}
+        {linkFirst ? link : null}
+        {p.cli ? (
+          <>
+            <h2 class="section-title" id="newTitle">
+              Connect a new board
+            </h2>
+            <p class="section-sub">{feedbackFrom}</p>
+          </>
+        ) : null}
         {p.askSiteUrl ? (
           <div class="fields">
             <label class="field wide">
@@ -115,7 +220,7 @@ export const BoardsPage = (p: BoardsPageProps) => (
           <span class="name">
             <span id="createTitle">Create a new board for me</span>
             <span class="sub" id="createSub">
-              “{p.newBoardName}” with New, In progress and Done lists
+              {createSub(p.newBoardName)}
             </span>
           </span>
         </button>
@@ -141,6 +246,7 @@ export const BoardsPage = (p: BoardsPageProps) => (
             You don’t have any boards here yet, so let us create one for you.
           </p>
         ) : null}
+        {p.cli && !linkFirst ? link : null}
       </main>
 
       <footer class="bar">
@@ -154,9 +260,13 @@ export const BoardsPage = (p: BoardsPageProps) => (
             <span>Mark resolved when moved to</span>
             <select id="doneList" />
           </label>
+          <label class="field wide">
+            <span>Ready for review list</span>
+            <select id="reviewList" />
+          </label>
         </div>
         <p class="hint" id="hint">
-          Pick a board to continue.
+          {linkFirst ? 'Or pick a board to connect it as a new project.' : 'Pick a board to continue.'}
         </p>
         <button type="button" class="btn btn-primary" id="connect" disabled>
           Connect
@@ -218,10 +328,29 @@ export const BoardsPage = (p: BoardsPageProps) => (
       </div>
     </main>
 
-    <Data value={{ s: p.s, openerOrigin: p.openerOrigin, currentBoardId: p.currentBoardId, newBoardName: p.newBoardName, nameFromSite: p.nameFromSite }} />
+    {/* Success, CLI: the keys went to the terminal, which is polling for them. */}
+    {p.cli ? (
+      <main id="doneCli" class="center" hidden>
+        <div class="badge pop">
+          <CheckIcon />
+        </div>
+        <h1 id="cliTitle">Connected{'\u00a0'}✓</h1>
+        <p class="lead">Return to your terminal. You can close this tab.</p>
+        <div class="actions">
+          <a class="btn btn-quiet" id="cliBoardLink" href="#" target="_blank" rel="noopener noreferrer">
+            Open the board in Trello
+          </a>
+        </div>
+      </main>
+    ) : null}
+
+    <Data
+      value={{ s: p.s, openerOrigin: p.openerOrigin, currentBoardId: p.currentBoardId, newBoardName: p.newBoardName, nameFromSite: p.nameFromSite, cli: !!p.cli }}
+    />
     <Script nonce={p.nonce} js={boardsJs} />
   </Layout>
-);
+  );
+};
 
 // Errors ----------------------------------------------------------------------
 

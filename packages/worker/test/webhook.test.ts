@@ -8,6 +8,7 @@ const BOARD = 'wh-board';
 const NEW = 'wh-list-new';
 const DOING = 'wh-list-doing';
 const DONE = 'wh-list-done';
+const REVIEW = 'wh-list-review';
 
 let cardId: string;
 let issueId: string;
@@ -19,10 +20,10 @@ async function seed() {
   const now = nowIso();
   await env.DB.prepare(
     `INSERT INTO projects (id, name, public_key, access_key, allowed_origins, trello_token_enc, trello_member_id, trello_board_id,
-       trello_board_name, trello_board_url, new_list_id, done_list_ids, webhook_id, created_at, updated_at)
-     VALUES (?, 'Site', ?, ?, '["http://site.test"]', 'x.y', 'member-1', ?, 'Board', 'https://trello.com/b/wh', ?, ?, 'hook-1', ?, ?)`,
+       trello_board_name, trello_board_url, new_list_id, done_list_ids, review_list_id, webhook_id, created_at, updated_at)
+     VALUES (?, 'Site', ?, ?, '["http://site.test"]', 'x.y', 'member-1', ?, 'Board', 'https://trello.com/b/wh', ?, ?, ?, 'hook-1', ?, ?)`,
   )
-    .bind(projectId, `pk_${randomId()}`, `ak_${randomId(24)}`, BOARD, NEW, JSON.stringify([DONE]), now, now)
+    .bind(projectId, `pk_${randomId()}`, `ak_${randomId(24)}`, BOARD, NEW, JSON.stringify([DONE]), REVIEW, now, now)
     .run();
   cardId = `card-${randomId(6)}`;
   issueId = randomId();
@@ -81,6 +82,13 @@ describe('trello webhook', () => {
 
     await send(moveTo(NEW));
     expect((await issue())!.status).toBe('new');
+  });
+
+  it('maps a move to the review list to review', async () => {
+    await send(moveTo(REVIEW));
+    expect((await issue())!.status).toBe('review');
+    await send(moveTo(DONE));
+    expect((await issue())!.status).toBe('resolved');
   });
 
   it('marks archived cards and restores unarchived ones', async () => {

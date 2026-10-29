@@ -35,20 +35,52 @@ export const APP_CSS = `
 .an-menu button[disabled] { opacity: .45; cursor: default; }
 
 /* Selector */
-.an-selector { position: fixed; inset: 0; z-index: var(--an-z); cursor: crosshair; pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; }
-.an-selector.an-empty { background: rgba(16, 18, 24, .28); }
-.an-box { position: absolute; border: 2px solid var(--an-accent); box-shadow: 0 0 0 100vmax rgba(16, 18, 24, .28); border-radius: 2px; }
+.an-selector {
+  position: fixed; inset: 0; z-index: var(--an-z); overflow: hidden; pointer-events: auto;
+  user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+}
+/* Element picking: a finger drag still scrolls the page; a tap picks. Area drawing needs every touch. */
+.an-selector.an-pick { cursor: default; touch-action: manipulation; }
+.an-selector.an-area { cursor: crosshair; touch-action: none; background: rgba(16, 18, 24, .18); }
+.an-selector.an-shift { cursor: crosshair; }
+.an-pick-box {
+  position: absolute; pointer-events: none; border-radius: 2px;
+  border: 2px solid var(--an-accent); background: color-mix(in srgb, var(--an-accent) 10%, transparent);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.7);
+}
+.an-pick-label {
+  position: absolute; pointer-events: none; max-width: calc(100vw - 8px); overflow: hidden; text-overflow: ellipsis;
+  padding: 2px 7px; border-radius: 4px; font: 600 11px/16px var(--an-font); white-space: nowrap;
+  background: var(--an-accent); color: var(--an-accent-ink); box-shadow: 0 1px 3px rgba(0,0,0,.25);
+}
+.an-pick-dim { font-weight: 500; opacity: .85; }
+.an-snap { position: absolute; pointer-events: none; border: 2px dashed var(--an-accent); border-radius: 2px; background: color-mix(in srgb, var(--an-accent) 8%, transparent); }
+.an-box { position: absolute; border: 2px solid var(--an-accent); box-shadow: 0 0 0 100vmax rgba(16, 18, 24, .28); border-radius: 2px; pointer-events: none; }
 .an-size {
   position: absolute; padding: 2px 6px; border-radius: 4px; font: 600 11px/16px var(--an-font);
   background: var(--an-ink); color: #fff; white-space: nowrap; pointer-events: none;
 }
 .an-hint {
-  position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
-  padding: 8px 8px 8px 14px; border-radius: 99px; background: var(--an-ink); color: #fff; font-size: 13px;
-  box-shadow: var(--an-shadow); white-space: nowrap; pointer-events: none;
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
+  width: max-content; max-width: calc(100vw - 32px); padding: 8px 8px 8px 14px; border-radius: 99px;
+  background: var(--an-ink); color: #fff; font-size: 13px; line-height: 18px; box-shadow: var(--an-shadow); pointer-events: none;
 }
-.an-hint button { all: unset; pointer-events: auto; cursor: pointer; padding: 3px 10px; border-radius: 99px; background: rgba(255,255,255,.14); font-size: 12px; }
+.an-hint > span { flex: 1 1 auto; min-width: 0; }
+.an-hint button {
+  all: unset; flex: none; pointer-events: auto; cursor: pointer; padding: 3px 10px; border-radius: 99px;
+  background: rgba(255,255,255,.14); font-size: 12px; line-height: 18px; white-space: nowrap;
+}
 .an-hint button:hover { background: rgba(255,255,255,.24); }
+.an-hint button:focus-visible { outline: 2px solid var(--an-accent); outline-offset: 1px; }
+.an-hint button.an-on { background: var(--an-accent); color: var(--an-accent-ink); }
+.an-hint-touch { display: none; }
+@media (hover: none) and (pointer: coarse) {
+  .an-hint-fine { display: none; }
+  .an-hint-touch { display: inline; }
+}
+@media (max-width: 640px) {
+  .an-hint { border-radius: 14px; }
+}
 
 /* Panel (form + success) */
 .an-panel {
@@ -58,11 +90,17 @@ export const APP_CSS = `
 }
 .an-panel.an-left { left: 20px; right: auto; }
 .an-panel.an-right { right: 20px; left: auto; }
-.an-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 0; }
-.an-panel-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.an-form-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 0; }
+.an-form-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
 .an-x { all: unset; cursor: pointer; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; color: var(--an-muted); font-size: 18px; line-height: 1; }
 .an-x:hover { background: var(--an-surface-2); color: var(--an-ink); }
 .an-form { display: grid; gap: 10px; padding: 12px 14px 14px; }
+.an-preview-wrap { display: grid; gap: 4px; }
+.an-picked {
+  justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 1px 7px; border-radius: 4px; background: var(--an-surface-2); color: var(--an-muted);
+  font: 500 11px/16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 .an-preview {
   display: grid; place-items: center; min-height: 64px; max-height: 170px; overflow: hidden; border-radius: 8px;
   border: 1px solid var(--an-border);

@@ -9,6 +9,8 @@ import project from './routes/project';
 import connect from './routes/connect';
 import webhook from './routes/webhook';
 import dev from './routes/dev';
+import agent from './routes/agent';
+import cli from './routes/cli';
 
 const app = new Hono<AppEnv>();
 
@@ -17,6 +19,8 @@ app.route('/v1/issues', issues);
 app.route('/v1/issues', comments);
 app.route('/v1/screenshots', screenshots);
 app.route('/v1/project', project);
+app.route('/v1/agent', agent);
+app.route('/cli', cli);
 app.route('/connect', connect);
 app.route('/trello/webhook', webhook);
 app.route('/dev', dev); // TRELLO_MOCK only

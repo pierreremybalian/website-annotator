@@ -35,7 +35,7 @@ describe('v1Cors', () => {
     });
     expect(res.status).toBe(204);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://anything.example');
-    expect(res.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, OPTIONS');
+    expect(res.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, DELETE, OPTIONS');
     const allowHeaders = res.headers.get('Access-Control-Allow-Headers')!.toLowerCase();
     for (const h of ['content-type', HEADER_PROJECT.toLowerCase(), HEADER_ACCESS.toLowerCase()]) expect(allowHeaders).toContain(h);
     expect(res.headers.get('Access-Control-Max-Age')).toBe('86400');

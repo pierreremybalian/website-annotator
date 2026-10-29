@@ -1,0 +1,23 @@
+---
+interface Props {
+  title: string;
+  href: string;
+}
+const { title, href } = Astro.props;
+---
+<!-- A card -->
+<article class="card">
+  <h2><a href={href}>{title}</a></h2>
+  <slot />
+</article>
+
+<style>
+  .card {
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: 1rem;
+  }
+  h2 {
+    margin: 0 0 0.5rem;
+  }
+</style>

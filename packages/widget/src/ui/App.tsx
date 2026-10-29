@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
-import type { Anchor, CaptureEnv, CreateIssueMeta, CreateIssueResponse, Rect, Reporter } from '@annotate/shared';
+import type { Anchor, CaptureEnv, CreateIssueMeta, CreateIssueResponse, IssueContext, Rect, Reporter } from '@annotate/shared';
 import type { WidgetApi } from '../types';
 import { ApiRequestError } from '../api';
-import { createAnchor } from '../capture/anchor';
+import { createAnchor, createElementAnchor, matchAnchor } from '../capture/anchor';
+import { captureContext } from '../capture/context';
 import { buildEnv } from '../capture/env';
 import { captureScreenshots, type Screenshots } from '../capture/screenshot';
 import { Pins } from './Pins';
-import { Selector } from './Selector';
+import { describeElement, rectOf, Selector, type Picked } from './Selector';
 import { Form, Success, type FormInput } from './Form';
 import { saveReporter } from './storage';
 
@@ -38,7 +39,13 @@ interface Captured {
   previewUrl: string | null;
   anchor: Anchor;
   env: CaptureEnv;
+  context: IssueContext;
+  /** What was picked, for the form: `h2.hero-title` or `Area 320×200`. */
+  label: string;
 }
+
+/** Padding (CSS px) around a picked element in the selection screenshot. */
+const ELEMENT_CROP_PADDING = 8;
 
 const NAV_EVENT = 'annotate:locationchange';
 let historyPatched = false;
@@ -57,8 +64,9 @@ export function patchHistory(): void {
   }
 }
 
-function fallbackAnchor(rect: Rect): Anchor {
+function fallbackAnchor(rect: Rect, mode: Anchor['mode']): Anchor {
   return {
+    mode,
     selector: null,
     relative: null,
     absolute: { x: rect.x + window.scrollX, y: rect.y + window.scrollY, width: rect.width, height: rect.height },
@@ -106,6 +114,7 @@ export function App(props: AppProps) {
   const [mode, setMode] = useState<Mode>('idle');
   const [menuOpen, setMenuOpen] = useState(false);
   const [showPins, setShowPins] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
   const [pageUrl, setPageUrl] = useState(location.href);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -140,20 +149,47 @@ export function App(props: AppProps) {
   const cancelSelecting = useCallback(() => setMode('idle'), []);
 
   const onSelect = useCallback(
-    async (rect: Rect) => {
+    async (picked: Picked) => {
       setMode('capturing');
-      // Anchor and env first, synchronously: a scroll or layout shift during the async
+      // Anchor, context and env first, synchronously: a scroll or layout shift during the async
       // capture would otherwise misalign them with what the user selected.
       let anchor: Anchor;
-      try {
-        anchor = createAnchor(rect, host);
-      } catch {
-        anchor = fallbackAnchor(rect);
+      let context: IssueContext;
+      let rect: Rect;
+      let padding = 0;
+      let label: string;
+      if (picked.mode === 'element') {
+        const el = picked.element;
+        rect = rectOf(el);
+        padding = ELEMENT_CROP_PADDING;
+        label = describeElement(el);
+        try {
+          anchor = createElementAnchor(el);
+        } catch {
+          anchor = fallbackAnchor(rect, 'element');
+        }
+        context = captureContext(el);
+      } else {
+        rect = picked.rect;
+        label = `Area ${Math.round(rect.width)}×${Math.round(rect.height)}`;
+        try {
+          anchor = createAnchor(rect, host);
+        } catch {
+          anchor = fallbackAnchor(rect, 'area');
+        }
+        // The anchor element (smallest element containing the box).
+        let anchorEl: Element | null = null;
+        try {
+          anchorEl = matchAnchor(anchor);
+        } catch {
+          anchorEl = null;
+        }
+        context = captureContext(anchorEl);
       }
       const env = buildEnv();
-      const shots = await captureScreenshots(rect, host);
+      const shots = await captureScreenshots(rect, host, { padding });
       const previewUrl = shots.ok ? URL.createObjectURL(shots.selection) : null;
-      setCaptured({ shots, previewUrl, anchor, env });
+      setCaptured({ shots, previewUrl, anchor, env, context, label });
       setMode('form');
     },
     [host],
@@ -175,6 +211,7 @@ export function App(props: AppProps) {
         reporter: input.reporter,
         anchor: c.anchor,
         env: c.env,
+        context: c.context,
       };
       let res: CreateIssueResponse;
       try {
@@ -272,12 +309,12 @@ export function App(props: AppProps) {
     if (e.key !== 'Escape' && isEditable(e.composedPath()[0])) e.stopPropagation();
   };
 
-  const pinsVisible = showPins && (mode === 'idle' || mode === 'submitted');
+  const pinsMounted = mode === 'idle' || mode === 'submitted';
   const canTurnOff = activation !== 'always-on';
 
   return (
     <div class="annotate-root" onKeyDown={shieldKeys} onKeyUp={shieldKeys} onKeyPress={shieldKeys}>
-      {pinsVisible && (
+      {pinsMounted && (
         <Pins
           api={api}
           pageUrl={pageUrl}
@@ -286,6 +323,9 @@ export function App(props: AppProps) {
           showResolved={showResolved}
           refreshKey={refreshKey}
           openIssueId={openIssueId}
+          showPins={showPins}
+          panelOpen={panelOpen}
+          onPanelOpenChange={setPanelOpen}
         />
       )}
 
@@ -297,6 +337,18 @@ export function App(props: AppProps) {
                 <span>Report an issue</span>
                 <span class="an-kbd">⌥⇧A</span>
               </button>
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={panelOpen}
+                onClick={() => {
+                  setPanelOpen((v) => !v);
+                  setMenuOpen(false);
+                }}
+              >
+                <span>Issues on this page</span>
+                <span class={`an-switch${panelOpen ? ' on' : ''}`} />
+              </button>
               <hr />
               <button type="button" role="menuitemcheckbox" aria-checked={showPins} onClick={() => setShowPins((v) => !v)}>
                 <span>Show pins</span>
@@ -306,7 +358,6 @@ export function App(props: AppProps) {
                 type="button"
                 role="menuitemcheckbox"
                 aria-checked={showResolved}
-                disabled={!showPins}
                 onClick={() => setShowResolved((v) => !v)}
               >
                 <span>Show resolved</span>
@@ -335,12 +386,13 @@ export function App(props: AppProps) {
         </div>
       )}
 
-      {mode === 'selecting' && <Selector onSelect={onSelect} onCancel={cancelSelecting} />}
+      {mode === 'selecting' && <Selector host={host} onSelect={onSelect} onCancel={cancelSelecting} />}
 
       {mode === 'form' && captured && (
         <Form
           side={side}
           previewUrl={captured.previewUrl}
+          selectionLabel={captured.label}
           captureError={captured.shots.ok ? null : captured.shots.error}
           reporter={reporter}
           reporterDraft={props.reporterPrefill}

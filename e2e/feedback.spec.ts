@@ -29,15 +29,17 @@ test('capture → Trello card → pin → status follows Trello', async ({ page 
   const box = (await card.boundingBox())!;
   const cardsBefore = (await mockState(page)).cards.length;
 
-  // 1. Launcher → Report an issue → drag a box over the second service card.
+  // 1. Launcher → Report an issue → Shift-drag around the second service card (snaps to the element).
   await page.getByRole('button', { name: 'Feedback' }).click();
   await page.getByText('Report an issue').click();
   await expect(page.locator('[data-annotate="selector"]')).toBeVisible();
+  await page.keyboard.down('Shift');
   await page.mouse.move(box.x + 4, box.y + 4);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 5 });
   await page.mouse.move(box.x + box.width - 4, box.y + box.height - 4, { steps: 5 });
   await page.mouse.up();
+  await page.keyboard.up('Shift');
 
   // 2. Fill the form and send.
   const form = page.getByRole('dialog', { name: 'Report an issue' });
@@ -123,4 +125,59 @@ test('connect popup posts keys back to the opener', async ({ page, context }) =>
     projectKey: expect.stringMatching(/^pk_/),
     accessKey: expect.stringMatching(/^ak_/),
   });
+});
+
+test('agent loop: pick element → CLI show/claim/resolve → human confirms on the pin', async ({ page }) => {
+  const { execFileSync } = await import('node:child_process');
+  execFileSync('pnpm', ['--filter', '@annotate/cli', 'build'], { stdio: 'ignore' });
+  const cli = (...args: string[]) =>
+    execFileSync('node', ['packages/cli/dist/annotate.mjs', ...args, '--endpoint', WORKER], {
+      env: { ...process.env, ANNOTATE_TOKEN: 'at_dev-token' },
+      encoding: 'utf8',
+    });
+
+  await page.goto(PAGE);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  // Pick the hero heading by clicking it.
+  const h1 = page.locator('h1').first();
+  const hb = (await h1.boundingBox())!;
+  await page.getByRole('button', { name: 'Feedback' }).click();
+  await page.getByText('Report an issue').click();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2, { steps: 4 });
+  await page.mouse.click(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  const form = page.getByRole('dialog', { name: 'Report an issue' });
+  await expect(form).toBeVisible({ timeout: 20_000 });
+  await form.getByLabel('Title (optional)').fill('Heading wraps awkwardly');
+  await form.getByLabel("What's wrong?").fill('The hero heading breaks after one word at 1280px.');
+  await form.getByLabel('Your name').fill('E2E Client');
+  await form.getByLabel('Email').fill('client@example.com');
+  await form.getByRole('button', { name: 'Send' }).click();
+  const created = await page.getByText(/#\d+ created/).textContent({ timeout: 20_000 });
+  const n = created!.match(/#(\d+)/)![1]!;
+
+  // The agent sees element-mode context with source hints.
+  const shown = JSON.parse(cli('show', n, '--json'));
+  expect(shown.anchor.mode).toBe('element');
+  expect(shown.context.page).toMatchObject({ platform: 'dev' });
+  expect(shown.context.element.tag).toBe('h1');
+  expect(shown.sources.length).toBeGreaterThan(0);
+
+  cli('claim', n, '--as', 'e2e-agent');
+  const resolved = JSON.parse(cli('resolve', n, '--note', 'Balanced the heading with text-wrap', '--commit', 'abc1234', '--as', 'e2e-agent', '--json'));
+  expect(resolved.issue.status).toBe('review');
+
+  // The client sees "Ready for review" on the pin and confirms.
+  await page.reload();
+  const pin = page.getByRole('button', { name: /Heading wraps awkwardly/ }).last();
+  await expect(pin).toBeVisible();
+  await pin.click();
+  const pop = page.getByRole('dialog', { name: new RegExp(`Issue #${n}`) });
+  await expect(pop.getByText('Marked as fixed')).toBeVisible();
+  await expect(pop.getByText('Balanced the heading with text-wrap')).toBeVisible();
+  await pop.getByRole('button', { name: /Looks good/ }).click();
+  await expect(pop.getByText(/Thanks/)).toBeVisible();
+
+  expect(JSON.parse(cli('show', n, '--json')).status).toBe('resolved');
 });

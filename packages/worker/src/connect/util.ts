@@ -34,14 +34,43 @@ export function cleanLabel(v: string | undefined, max = 80): string | null {
 }
 
 const DONE_RE = /done|complete|resolved|closed|fixed/i;
+/** Lists that look like a "ready for review" stage. Also embedded in the board picker's script. */
+export const REVIEW_RE = /ready for review|review|qa|testing|verif/i;
+/** Review dropdown value: create a "Ready for review" list on finish. */
+export const CREATE_REVIEW_LIST = '__create__';
+export const REVIEW_LIST_NAME = 'Ready for review';
 
-/** Smart list defaults: new issues → first list; resolved → a "done"-like list, else the last one. */
-export function defaultLists(lists: Pick<TrelloList, 'id' | 'name'>[]): { newListId: string | null; doneListId: string | null } {
+export interface ListDefaults {
+  newListId: string | null;
+  doneListId: string | null;
+  /** A list id, or CREATE_REVIEW_LIST when no list looks like a review stage. Null when the board has no lists. */
+  reviewListId: string | null;
+}
+
+/** Review default: the first review-like list other than the new and done lists, else "create one". */
+export function defaultReviewList(lists: Pick<TrelloList, 'id' | 'name'>[], newListId: string | null, doneListId: string | null): string | null {
+  if (lists.length === 0) return null;
+  return lists.find((l) => l.id !== newListId && l.id !== doneListId && REVIEW_RE.test(l.name))?.id ?? CREATE_REVIEW_LIST;
+}
+
+/** Smart list defaults: new issues → first list; resolved → a "done"-like list, else the last one; review → see defaultReviewList. */
+export function defaultLists(lists: Pick<TrelloList, 'id' | 'name'>[]): ListDefaults {
   const first = lists[0];
-  if (!first) return { newListId: null, doneListId: null };
+  if (!first) return { newListId: null, doneListId: null, reviewListId: null };
   const rest = lists.slice(1);
   const done = rest.find((l) => DONE_RE.test(l.name)) ?? rest[rest.length - 1];
-  return { newListId: first.id, doneListId: done?.id ?? null };
+  const doneListId = done?.id ?? null;
+  return { newListId: first.id, doneListId, reviewListId: defaultReviewList(lists, first.id, doneListId) };
+}
+
+/** A Trello `pos` just before the first of `beforeIds` on the board (halfway to the list in front of it). */
+export function posBefore(lists: Pick<TrelloList, 'id' | 'pos'>[], beforeIds: string[]): number | 'bottom' {
+  const sorted = [...lists].sort((a, b) => a.pos - b.pos);
+  const i = sorted.findIndex((l) => beforeIds.includes(l.id));
+  const target = sorted[i];
+  if (!target) return 'bottom';
+  const prev = sorted[i - 1]?.pos ?? 0;
+  return (prev + target.pos) / 2;
 }
 
 /** JSON safe to embed inside a <script type="application/json"> element. */

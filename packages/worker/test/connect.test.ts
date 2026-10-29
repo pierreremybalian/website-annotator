@@ -99,7 +99,7 @@ describe('connect flow', () => {
     expect(lists.status).toBe(200);
     const l = (await lists.json()) as ConnectListsResponse;
     expect(l.lists.map((x) => x.name)).toEqual(['To Do', 'Doing', 'Done']);
-    expect(l.defaults).toEqual({ newListId: 'list-1', doneListId: 'list-3' });
+    expect(l.defaults).toEqual({ newListId: 'list-1', doneListId: 'list-3', reviewListId: '__create__' });
 
     // 5. Finish.
     const fin = await flow.post('/connect/finish', { s: flow.s, boardId: 'board-1', newListId: 'list-1', doneListIds: ['list-3'] });
@@ -133,15 +133,17 @@ describe('connect flow', () => {
     expect((await flow.post('/connect/finish', { s: flow.s, boardId: 'board-1', newListId: 'list-1', doneListIds: ['list-3'] })).status).toBe(410);
   });
 
-  it('creates a board with New / In progress / Done and connects to it', async () => {
+  it('creates a board with New / In progress / Ready for review / Done and connects to it', async () => {
     const flow = await start('origin=http://site.test&name=Site');
     await login(flow);
     const res = await flow.post('/connect/boards', { s: flow.s });
     expect(res.status).toBe(200);
     const created = (await res.json()) as ConnectListsResponse;
     expect(created.board.name).toBe('Website feedback – Site');
-    expect(created.lists.map((l) => l.name)).toEqual(['New', 'In progress', 'Done']);
-    expect(created.defaults).toEqual({ newListId: created.lists[0]!.id, doneListId: created.lists[2]!.id });
+    expect(created.lists.map((l) => l.name)).toEqual(['New', 'In progress', 'Ready for review', 'Done']);
+    expect(created.defaults).toEqual({ newListId: created.lists[0]!.id, doneListId: created.lists[3]!.id, reviewListId: created.lists[2]!.id });
+    const positions = created.lists.map((l) => mockTrelloState().lists.get(l.id)!.pos);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(mockTrelloState().boards.get(created.board.id)?.idOrganization).toBeNull(); // no ALLOWED_TRELLO_ORG in tests
 
     // Trello now returns the same lists in the same order.
@@ -154,12 +156,20 @@ describe('connect flow', () => {
       boardId: created.board.id,
       newListId: created.defaults.newListId,
       doneListIds: [created.defaults.doneListId],
+      reviewListId: created.defaults.reviewListId,
     });
     expect(fin.status).toBe(200);
     const out = (await fin.json()) as ConnectFinishResponse;
     expect(out.message.boardName).toBe('Website feedback – Site');
     const p = await projectByKey(out.message.projectKey);
-    expect(p).toMatchObject({ trello_board_id: created.board.id, new_list_id: created.lists[0]!.id, done_list_ids: JSON.stringify([created.lists[2]!.id]) });
+    expect(p).toMatchObject({
+      trello_board_id: created.board.id,
+      new_list_id: created.lists[0]!.id,
+      done_list_ids: JSON.stringify([created.lists[3]!.id]),
+      review_list_id: created.lists[2]!.id,
+    });
+    // No extra list was created on finish.
+    expect([...mockTrelloState().lists.values()].filter((l) => l.idBoard === created.board.id)).toHaveLength(4);
   });
 
   it('standalone: asks for the site URL and uses it for origins and the activation link', async () => {
@@ -271,7 +281,7 @@ describe('connect flow', () => {
     // The picker preselects the current board, with the project's current lists as defaults.
     expect(await (await flow.get(`/connect/boards?s=${flow.s}`)).text()).toContain('"currentBoardId":"board-1"');
     const same = (await (await flow.get(`/connect/lists?s=${flow.s}&board=board-1`)).json()) as ConnectListsResponse;
-    expect(same.defaults).toEqual({ newListId: 'list-1', doneListId: 'list-3' });
+    expect(same.defaults).toEqual({ newListId: 'list-1', doneListId: 'list-3', reviewListId: '__create__' });
 
     const created = (await (await flow.post('/connect/boards', { s: flow.s })).json()) as ConnectListsResponse;
     const fin = await flow.post('/connect/finish', { s: flow.s, boardId: created.board.id, newListId: created.lists[0]!.id, doneListIds: [created.lists[2]!.id] });
@@ -352,9 +362,107 @@ describe('connect flow', () => {
     expect(html).toContain('&lt;b&gt;Evil&lt;/b&gt;');
   });
 
+  it('popup finish without a review list leaves review_list_id unset', async () => {
+    const out = await connectMockBoard();
+    expect((await projectByKey(out.message.projectKey))!.review_list_id).toBeNull();
+  });
+
   it('redirects to PUBLIC_URL so the session cookie lands on the right host', async () => {
     const res = await SELF.fetch('http://127.0.0.1:8787/connect?name=Site', { redirect: 'manual' });
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe(`${BASE}/connect?name=Site`);
+  });
+});
+
+/** Put a board with these list names on the mock (pos 1024, 2048, …). */
+function mockBoard(id: string, names: string[]) {
+  const st = mockTrelloState();
+  st.boards.set(id, { id, name: `Board ${id}`, url: `https://trello.com/b/${id}`, idOrganization: MOCK_ORG_ID });
+  names.forEach((name, i) => st.lists.set(`${id}-l${i + 1}`, { id: `${id}-l${i + 1}`, name, pos: (i + 1) * 1024, idBoard: id }));
+}
+
+describe('ready-for-review list', () => {
+  async function loggedIn() {
+    const flow = await start('origin=http://site.test&name=Site');
+    await login(flow);
+    return flow;
+  }
+  const listsOf = async (flow: Flow, board: string) => (await (await flow.get(`/connect/lists?s=${flow.s}&board=${board}`)).json()) as ConnectListsResponse;
+
+  it('defaults to a review-like list other than the new and done lists, else __create__', async () => {
+    mockBoard('qa', ['Backlog', 'Doing', 'QA', 'Done']);
+    mockBoard('verify', ['Inbox', 'Needs verification', 'Shipped', 'Closed']);
+    mockBoard('none', ['Inbox', 'Doing', 'Done']);
+    // "Reviewed" is the fallback done list (the last one), so it can't also be the review list.
+    mockBoard('clash', ['Inbox', 'Reviewed']);
+    const flow = await loggedIn();
+    expect((await listsOf(flow, 'qa')).defaults).toEqual({ newListId: 'qa-l1', doneListId: 'qa-l4', reviewListId: 'qa-l3' });
+    expect((await listsOf(flow, 'verify')).defaults).toEqual({ newListId: 'verify-l1', doneListId: 'verify-l4', reviewListId: 'verify-l2' });
+    expect((await listsOf(flow, 'none')).defaults.reviewListId).toBe('__create__');
+    expect((await listsOf(flow, 'clash')).defaults).toEqual({ newListId: 'clash-l1', doneListId: 'clash-l2', reviewListId: '__create__' });
+  });
+
+  it('the picker has the review dropdown, with the create option built in', async () => {
+    const flow = await loggedIn();
+    const html = await (await flow.get(`/connect/boards?s=${flow.s}`)).text();
+    expect(html).toContain('Ready for review list');
+    expect(html).toContain('id="reviewList"');
+    expect(html).toContain('"__create__"');
+    expect(html).toContain('New, In progress, Ready for review and Done lists');
+  });
+
+  it('__create__ makes a "Ready for review" list just before the done list and stores it', async () => {
+    const flow = await loggedIn();
+    const fin = await flow.post('/connect/finish', { s: flow.s, boardId: 'board-1', newListId: 'list-1', doneListIds: ['list-3'], reviewListId: '__create__' });
+    expect(fin.status).toBe(200);
+    const out = (await fin.json()) as ConnectFinishResponse;
+    const p = (await projectByKey(out.message.projectKey))!;
+    const review = mockTrelloState().lists.get(p.review_list_id!);
+    expect(review).toMatchObject({ name: 'Ready for review', idBoard: 'board-1', pos: 2560 }); // between Doing (2048) and Done (3072)
+    const order = [...mockTrelloState().lists.values()].filter((l) => l.idBoard === 'board-1').sort((a, b) => a.pos - b.pos).map((l) => l.name);
+    expect(order).toEqual(['To Do', 'Doing', 'Ready for review', 'Done']);
+  });
+
+  it('__create__ in front of a done list that comes first goes halfway to the top', async () => {
+    mockBoard('first', ['Done', 'Inbox']);
+    const flow = await loggedIn();
+    const fin = await flow.post('/connect/finish', { s: flow.s, boardId: 'first', newListId: 'first-l2', doneListIds: ['first-l1'], reviewListId: '__create__' });
+    expect(fin.status).toBe(200);
+    const p = (await projectByKey(((await fin.json()) as ConnectFinishResponse).message.projectKey))!;
+    expect(mockTrelloState().lists.get(p.review_list_id!)?.pos).toBe(512);
+  });
+
+  it('uses an existing list as chosen, and validates it', async () => {
+    mockBoard('qa', ['Backlog', 'Doing', 'QA', 'Done']);
+    const flow = await loggedIn();
+    const finish = (reviewListId: unknown) => flow.post('/connect/finish', { s: flow.s, boardId: 'qa', newListId: 'qa-l1', doneListIds: ['qa-l4'], reviewListId });
+    expect((await finish('qa-l1')).status).toBe(400); // same as new
+    expect((await finish('qa-l4')).status).toBe(400); // same as done
+    expect((await finish('list-2')).status).toBe(400); // another board's list
+    expect((await finish(42)).status).toBe(400);
+    const before = mockTrelloState().lists.size;
+    const fin = await finish('qa-l3');
+    expect(fin.status).toBe(200);
+    expect(mockTrelloState().lists.size).toBe(before);
+    expect((await projectByKey(((await fin.json()) as ConnectFinishResponse).message.projectKey))!.review_list_id).toBe('qa-l3');
+  });
+
+  it('reconnect preselects the review list the project already uses', async () => {
+    mockBoard('qa', ['Backlog', 'Doing', 'QA', 'Testing', 'Done']);
+    const first = await loggedIn();
+    const fin = await first.post('/connect/finish', { s: first.s, boardId: 'qa', newListId: 'qa-l1', doneListIds: ['qa-l5'], reviewListId: 'qa-l4' });
+    const { projectKey, accessKey } = ((await fin.json()) as ConnectFinishResponse).message;
+
+    const flow = await start(`origin=http://site.test&project=${projectKey}&access=${accessKey}`);
+    await login(flow);
+    expect((await listsOf(flow, 'qa')).defaults).toEqual({ newListId: 'qa-l1', doneListId: 'qa-l5', reviewListId: 'qa-l4' });
+
+    // Reconnecting without sending a review list keeps it; switching boards drops it.
+    expect((await flow.post('/connect/finish', { s: flow.s, boardId: 'qa', newListId: 'qa-l1', doneListIds: ['qa-l5'] })).status).toBe(200);
+    expect((await projectByKey(projectKey))!.review_list_id).toBe('qa-l4');
+    const again = await start(`origin=http://site.test&project=${projectKey}&access=${accessKey}`);
+    await login(again);
+    expect((await again.post('/connect/finish', { s: again.s, boardId: 'board-1', newListId: 'list-1', doneListIds: ['list-3'] })).status).toBe(200);
+    expect((await projectByKey(projectKey))!.review_list_id).toBeNull();
   });
 });

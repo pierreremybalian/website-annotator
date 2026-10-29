@@ -49,6 +49,8 @@
     .prose { max-width: 720px; }
     .sticky-note { position: sticky; top: 80px; float: right; width: 220px; margin: 0 0 16px 24px; padding: 14px; background: #fff7d6; border: 1px solid #efd98a; border-radius: 8px; font: 14px/1.5 system-ui, sans-serif; }
     footer { background: #13261f; color: #cfe8df; padding: 40px 32px; font-family: system-ui, sans-serif; }
+    .wide-only { margin-top: 24px; padding: 12px 16px; border: 1px dashed #b9c9c2; border-radius: 8px; background: #f1f7f4; font: 14px/1.5 system-ui, sans-serif; color: var(--muted); }
+    @media (max-width: 899px) { .wide-only { display: none; } }
     @media (max-width: 800px) { .hero, .cards { grid-template-columns: 1fr; } header.site nav { display: none; } }
   </style>
 </head>
@@ -62,9 +64,9 @@
   </header>
 
   <main>
-    <div class="hero">
+    <div class="hero" data-astro-cid-abc123>
       <div>
-        <h1>Landscapes that age beautifully.</h1>
+        <h1 data-astro-source-file="src/pages/index.astro" data-astro-source-loc="14:9">Landscapes that age beautifully.</h1>
         <p>We design and build gardens for coastal homes: native planting, dry-stone walls and outdoor rooms that look better every year.</p>
         <a class="btn" href="#contact">Start a project</a>
         <button id="throw" class="btn" style="border:0;cursor:pointer;margin-left:8px;background:#8a2d1c">Throw an error</button>
@@ -85,16 +87,17 @@
       </div>
     </div>
 
-    <section id="services">
+    <section id="services" data-annotate-block="acf/services">
       <h2>What we do</h2>
       <div class="cards">
-        <div class="card"><span class="tag">Design</span><h3>Garden design</h3><p>Site survey, concept plans and planting schedules tuned to salt air and sandy soil.</p></div>
+        <div class="card" data-annotate-source="src/components/Card.astro"><span class="tag">Design</span><h3>Garden design</h3><p>Site survey, concept plans and planting schedules tuned to salt air and sandy soil.</p></div>
         <div class="card"><span class="tag">Build</span><h3>Hard landscaping</h3><p>Dry-stone walls, reclaimed-timber decks and permeable paths, built by our own crew.</p></div>
         <div class="card"><span class="tag">Care</span><h3>Seasonal care</h3><p>Four visits a year to prune, mulch and adjust irrigation as the garden matures.</p></div>
         <div class="card"><span class="tag">Water</span><h3>Rain gardens</h3><p>Swales and soakaways that keep storm water on site and feed the planting.</p></div>
         <div class="card"><span class="tag">Light</span><h3>Outdoor lighting</h3><p>Low-glare, warm-white lighting that keeps the night sky dark.</p></div>
         <div class="card"><span class="tag">Play</span><h3>Family spaces</h3><p>Natural play areas, kitchen gardens and somewhere to sit when the kids are done.</p></div>
       </div>
+      <p class="wide-only" id="wide-only">Wide screens only: this note is <code>display: none</code> below 900px, so a pin on it is hidden there (and listed in the issues panel).</p>
     </section>
 
     <section id="work">
@@ -141,6 +144,10 @@
     document.getElementById('throw').addEventListener('click', function () {
       setTimeout(function () { null.boom(); });
     });
+  </script>
+  <script>
+    // What a platform adapter (WP plugin, Astro integration) would set.
+    window.AnnotateContext = { platform: 'dev', template: 'index.html' };
   </script>
   <script type="module" src="/src/index.ts" data-endpoint="http://localhost:8787" data-project="dev-project" data-access="dev-access" data-always-on></script>
 </body>

@@ -8,12 +8,14 @@ import {
   type CreateIssueMeta,
   type CreateIssueResponse,
   type GetIssueResponse,
+  type IssueActionResponse,
+  type IssueContext,
   type ListIssuesResponse,
   type ProjectStatus,
 } from '@annotate/shared';
 import { encryptToken } from '../src/crypto';
 import { randomId, type IssueRow, type ProjectRow } from '../src/db';
-import { MOCK_TOKEN, mockTrelloState, resetMockTrello, trello } from '../src/trello';
+import { MOCK_TOKEN, mockMoveCard, mockTrelloState, resetMockTrello, trello } from '../src/trello';
 import { signedScreenshotUrl } from '../src/sign';
 
 const BASE = 'http://worker.test';
@@ -218,6 +220,38 @@ describe('POST /v1/issues', () => {
     expect(desc.endsWith('```')).toBe(true);
   });
 
+  it('stores the element context and lists source hints in the card description', async () => {
+    const p = await createProject();
+    const context: IssueContext = {
+      page: { platform: 'astro', route: '/pricing' },
+      element: {
+        tag: 'button',
+        html: '<button id="buy">Buy now</button>',
+        text: 'Buy now',
+        landmark: 'Pricing',
+        styles: { display: 'inline-block' },
+        sources: [
+          { kind: 'wp-block', value: 'acf/hero', depth: 0 },
+          { kind: 'astro-source', value: 'src/components/Hero.astro', file: 'src/components/Hero.astro', line: 12, depth: 1 },
+          { kind: 'wp-block', value: 'acf/hero', depth: 2 },
+          { kind: 'astro-cid', value: 'abc123', depth: 2 },
+          { kind: 'annotate', value: 'Footer', depth: 3 },
+        ],
+      },
+    };
+    const created = await createIssue(p, makeMeta({ context }));
+    expect(JSON.parse((await issueRow(created.id))!.context!)).toEqual(context);
+    const desc = [...mockTrelloState().cards.values()][0]!.desc;
+    expect(desc.split('\n').at(-1)).toBe('**Source:** `acf/hero`, `src/components/Hero.astro:12`, `data-astro-cid-abc123`');
+  });
+
+  it('stores no context for a pre-0.2 report and adds no Source line', async () => {
+    const p = await createProject();
+    const created = await createIssue(p, makeMeta({ context: null as unknown as IssueContext }));
+    expect((await issueRow(created.id))!.context).toBeNull();
+    expect([...mockTrelloState().cards.values()][0]!.desc).not.toContain('**Source:**');
+  });
+
   const big = new Uint8Array(8 * 1024 * 1024 + 1);
   big.set(PNG);
   it.each<[string, Parts, CreateIssueMeta | string]>([
@@ -229,6 +263,9 @@ describe('POST /v1/issues', () => {
     ['missing anchor.absolute', {}, { ...makeMeta(), anchor: { selector: null } } as unknown as CreateIssueMeta],
     ['missing env.url', {}, makeMeta({ url: '' })],
     ['non-http env.url', {}, makeMeta({ url: 'javascript:alert(1)' })],
+    ['context not an object', {}, makeMeta({ context: 'hero' as unknown as IssueContext })],
+    ['context.element not an object', {}, makeMeta({ context: { page: null, element: [] as unknown as IssueContext['element'] } })],
+    ['context over 16 KB', {}, makeMeta({ context: { page: { blob: 'x'.repeat(17 * 1024) }, element: null } })],
     ['invalid meta JSON', {}, '{nope'],
     ['missing meta', { meta: null }, makeMeta()],
     ['missing selection', { selection: null }, makeMeta()],
@@ -295,6 +332,14 @@ describe('GET /v1/issues', () => {
       [1, 'resolved'],
       [2, 'new'],
     ]);
+  });
+
+  it('shows issues in review (that is where the reporter confirms them)', async () => {
+    const p = await createProject();
+    const a = await createIssue(p);
+    await env.DB.prepare("UPDATE issues SET status = 'review' WHERE id = ?").bind(a.id).run();
+    const { issues } = await (await listIssues(p, makeMeta().env.url)).json<ListIssuesResponse>();
+    expect(issues.map((i) => [i.id, i.status])).toEqual([[a.id, 'review']]);
   });
 
   it('hides archived issues too', async () => {
@@ -410,9 +455,9 @@ describe('comments', () => {
     await trello(env, MOCK_TOKEN).addComment(cardId, 'Fixed in the latest deploy.');
 
     const { issue } = await (await getIssue(p, created.id)).json<GetIssueResponse>();
-    expect(issue.comments.map(({ author, text, viaWidget }) => ({ author, text, viaWidget }))).toEqual([
-      { author: 'Jane Client', text: 'Still broken on **mobile**.\nSecond line', viaWidget: true },
-      { author: 'Mock User', text: 'Fixed in the latest deploy.', viaWidget: false },
+    expect(issue.comments.map(({ author, text, viaWidget, via }) => ({ author, text, viaWidget, via }))).toEqual([
+      { author: 'Jane Client', text: 'Still broken on **mobile**.\nSecond line', viaWidget: true, via: 'widget' },
+      { author: 'Mock User', text: 'Fixed in the latest deploy.', viaWidget: false, via: 'trello' },
     ]);
     expect(issue.comments[0]!.id).toBe(comment.id);
   });
@@ -434,6 +479,90 @@ describe('comments', () => {
   it('404s for an unknown issue', async () => {
     const p = await createProject();
     expect((await postComment(p, 'nope', { text: 'hi', reporter: { name: 'A', email: 'a@b.co' } })).status).toBe(404);
+  });
+});
+
+describe('confirm / reopen', () => {
+  const reporter = { name: 'Jane Client', email: 'jane@client.example' };
+  const act = (p: TestProject, id: string, action: 'confirm' | 'reopen', body: unknown) =>
+    SELF.fetch(`${BASE}/v1/issues/${id}/${action}`, { method: 'POST', headers: { ...authHeaders(p), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const setStatus = (id: string, status: string) => env.DB.prepare('UPDATE issues SET status = ? WHERE id = ?').bind(status, id).run();
+  const lastComment = (cardId: string) => mockTrelloState().comments.get(cardId)?.at(-1)?.data.text;
+
+  it('confirms an issue in review: card to the done list, status resolved', async () => {
+    const p = await createProject();
+    const created = await createIssue(p);
+    const cardId = (await issueRow(created.id))!.trello_card_id;
+    await setStatus(created.id, 'review');
+
+    const res = await act(p, created.id, 'confirm', { reporter });
+    expect(res.status).toBe(200);
+    const { issue } = await res.json<IssueActionResponse>();
+    expect(issue).toMatchObject({ id: created.id, number: 1, status: 'resolved' });
+    expect(mockTrelloState().cards.get(cardId)!.idList).toBe('list-3');
+    expect((await issueRow(created.id))!.status).toBe('resolved');
+    expect(lastComment(cardId)).toBe('**Jane Client** (via widget): ✅ Confirmed fixed');
+  });
+
+  it('only confirms from review', async () => {
+    const p = await createProject();
+    const created = await createIssue(p);
+    for (const status of ['new', 'in_progress', 'resolved']) {
+      await setStatus(created.id, status);
+      const res = await act(p, created.id, 'confirm', { reporter });
+      expect(res.status).toBe(409);
+      const err = await res.json<ApiError>();
+      expect(err.code).toBe('bad_request');
+      expect(err.error).toContain(status);
+    }
+    expect(mockTrelloState().comments.size).toBe(0);
+  });
+
+  it('400s confirming without a done list or a reporter', async () => {
+    const p = await createProject();
+    const created = await createIssue(p);
+    await setStatus(created.id, 'review');
+    expect((await act(p, created.id, 'confirm', {})).status).toBe(400);
+    await env.DB.prepare("UPDATE projects SET done_list_ids = '[]' WHERE id = ?").bind(p.id).run();
+    const res = await act(p, created.id, 'confirm', { reporter });
+    expect(res.status).toBe(400);
+    expect(await res.json<ApiError>()).toMatchObject({ code: 'bad_request' });
+  });
+
+  it.each(['review', 'resolved'])('reopens from %s: card to the new list with a note', async (from) => {
+    const p = await createProject();
+    const created = await createIssue(p);
+    const cardId = (await issueRow(created.id))!.trello_card_id;
+    mockMoveCard(cardId, 'list-3');
+    await setStatus(created.id, from);
+
+    const res = await act(p, created.id, 'reopen', { reporter, text: '  Still overlaps on iPhone.  ' });
+    expect(res.status).toBe(200);
+    expect((await res.json<IssueActionResponse>()).issue.status).toBe('new');
+    expect(mockTrelloState().cards.get(cardId)!.idList).toBe('list-1');
+    expect((await issueRow(created.id))!.status).toBe('new');
+    expect(lastComment(cardId)).toBe('**Jane Client** (via widget): ❌ Still broken: Still overlaps on iPhone.');
+  });
+
+  it('refuses to reopen a new issue and validates the text', async () => {
+    const p = await createProject();
+    const created = await createIssue(p);
+    expect((await act(p, created.id, 'reopen', { reporter, text: 'x' })).status).toBe(409);
+    await setStatus(created.id, 'review');
+    expect((await act(p, created.id, 'reopen', { reporter })).status).toBe(400);
+    expect((await act(p, created.id, 'reopen', { reporter, text: 'a'.repeat(5001) })).status).toBe(400);
+    expect((await act(p, 'nope', 'reopen', { reporter, text: 'x' })).status).toBe(404);
+  });
+
+  it('502s with token_revoked when Trello rejects the token', async () => {
+    const p = await createProject();
+    const created = await createIssue(p);
+    await setStatus(created.id, 'review');
+    await env.DB.prepare('UPDATE projects SET trello_token_enc = ? WHERE id = ?').bind(await encryptToken(env, 'bad-token'), p.id).run();
+    const res = await act(p, created.id, 'confirm', { reporter });
+    expect(res.status).toBe(502);
+    expect(await res.json<ApiError>()).toMatchObject({ code: 'token_revoked' });
+    expect((await issueRow(created.id))!.status).toBe('review');
   });
 });
 

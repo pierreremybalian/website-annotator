@@ -63,6 +63,8 @@ export interface Trello {
   addAttachment(cardId: string, file: Blob, name: string, setCover?: boolean): Promise<{ id: string }>;
   /** Returns null when the card no longer exists. */
   getCard(cardId: string): Promise<TrelloCard | null>;
+  /** Move a card to another list (top of the list). */
+  moveCard(cardId: string, idList: string): Promise<TrelloCard>;
   /** Newest first, as Trello returns them. */
   getComments(cardId: string): Promise<TrelloComment[]>;
   addComment(cardId: string, text: string): Promise<TrelloComment>;
@@ -142,6 +144,9 @@ class HttpTrello implements Trello {
       if (e instanceof TrelloError && e.status === 404) return null;
       throw e;
     }
+  }
+  moveCard(cardId: string, idList: string) {
+    return this.req<TrelloCard>('PUT', `/cards/${cardId}`, { idList, pos: 'top' });
   }
   getComments(cardId: string) {
     return this.req<TrelloComment[]>('GET', `/cards/${cardId}/actions`, { filter: 'commentCard', limit: '100' });
@@ -260,6 +265,15 @@ class MockTrello implements Trello {
     this.auth();
     const c = mock.cards.get(cardId);
     if (!c) return null;
+    const { desc: _d, attachments: _a, ...pub } = c;
+    return pub;
+  }
+  async moveCard(cardId: string, idList: string) {
+    this.auth();
+    const c = mock.cards.get(cardId);
+    if (!c) throw new TrelloError(404, 'card not found');
+    if (!mock.lists.has(idList)) throw new TrelloError(400, 'invalid idList');
+    c.idList = idList;
     const { desc: _d, attachments: _a, ...pub } = c;
     return pub;
   }

@@ -17,8 +17,8 @@ export const v1Cors: MiddlewareHandler<AppEnv> = async (c, next) => {
   const origin = c.req.header('Origin');
   if (c.req.method === 'OPTIONS') {
     const headers = new Headers({
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': `Content-Type, ${HEADER_PROJECT}, ${HEADER_ACCESS}`,
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': `Content-Type, Authorization, ${HEADER_PROJECT}, ${HEADER_ACCESS}`,
       'Access-Control-Max-Age': '86400',
       Vary: 'Origin',
     });

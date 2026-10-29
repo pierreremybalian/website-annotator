@@ -2,3 +2,5 @@ packages:
   - packages/shared
   - packages/worker
   - packages/widget
+  - packages/cli
+  - packages/astro

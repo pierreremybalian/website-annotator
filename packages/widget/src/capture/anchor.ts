@@ -176,16 +176,38 @@ export function createAnchor(rect: Rect, exclude: Element): Anchor {
       : null;
 
   const selector = relative ? selectorFor(anchorEl) : null;
-  // body/html text is the whole page (incl. inline scripts) and only adds false "detached" results.
-  const text =
-    selector && anchorEl !== body && anchorEl !== html ? normalizeText(anchorEl.textContent).slice(0, TEXT_LEN) : '';
 
   return {
+    mode: 'area',
     selector,
     relative: selector ? relative : null,
     absolute,
     viewportWidth,
-    text,
+    text: selector ? anchorText(anchorEl) : '',
+  };
+}
+
+/** body/html text is the whole page (incl. inline scripts) and only adds false "detached" results. */
+function anchorText(el: Element): string {
+  if (el === document.body || el === document.documentElement) return '';
+  return normalizeText(el.textContent).slice(0, TEXT_LEN);
+}
+
+// ---------------------------------------------------------------------------
+// createElementAnchor (0.2)
+
+/** Element mode: the anchor is exactly this element, so a pin always outlines its live rect. */
+export function createElementAnchor(el: Element): Anchor {
+  const r = el.getBoundingClientRect();
+  const absolute: Rect = { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height };
+  const selector = selectorFor(el);
+  return {
+    mode: 'element',
+    selector,
+    relative: selector ? { x: 0, y: 0, width: 1, height: 1 } : null,
+    absolute,
+    viewportWidth: window.innerWidth,
+    text: selector ? anchorText(el) : '',
   };
 }
 
@@ -206,11 +228,33 @@ export function matchAnchor(anchor: Anchor): Element | null {
   return el;
 }
 
-/** Viewport rect for an anchor given the result of matchAnchor (null → absolute fallback). */
-export function rectForAnchor(anchor: Anchor, el: Element | null): { rect: Rect; detached: boolean } {
+export interface ResolvedAnchor {
+  /** Viewport coordinates. Meaningless when hidden. */
+  rect: Rect;
+  /** The element is gone (or its text changed): rect is the capture-time absolute position. */
+  detached: boolean;
+  /** The element is there but not visible at this screen size: don't draw a pin. */
+  hidden: boolean;
+}
+
+function absoluteFallback(anchor: Anchor): Rect {
+  const a = anchor.absolute;
+  return { x: a.x - window.scrollX, y: a.y - window.scrollY, width: a.width, height: a.height };
+}
+
+/**
+ * Viewport rect for an anchor given the result of matchAnchor (null → absolute fallback, detached).
+ * Element mode: the element's current rect, exactly. Area mode (and pre-0.2 anchors with no mode):
+ * the relative fractions mapped onto the element's current rect.
+ */
+export function rectForAnchor(anchor: Anchor, el: Element | null): ResolvedAnchor {
   const rel = anchor.relative;
   if (el && rel && el.isConnected) {
+    if (isElementHidden(el)) return { rect: absoluteFallback(anchor), detached: false, hidden: true };
     const box = boxOf(el);
+    if (anchor.mode === 'element') {
+      return { rect: { x: box.left, y: box.top, width: box.width, height: box.height }, detached: false, hidden: false };
+    }
     if (box.width > 0 && box.height > 0) {
       return {
         rect: {
@@ -220,13 +264,25 @@ export function rectForAnchor(anchor: Anchor, el: Element | null): { rect: Rect;
           height: rel.height * box.height,
         },
         detached: false,
+        hidden: false,
       };
     }
   }
-  const a = anchor.absolute;
-  return { rect: { x: a.x - window.scrollX, y: a.y - window.scrollY, width: a.width, height: a.height }, detached: true };
+  return { rect: absoluteFallback(anchor), detached: true, hidden: false };
 }
 
-export function resolveAnchor(anchor: Anchor): { rect: Rect; detached: boolean } {
+export function resolveAnchor(anchor: Anchor): ResolvedAnchor {
   return rectForAnchor(anchor, matchAnchor(anchor));
+}
+
+/**
+ * 0.2: true when an element exists but isn't visible at the current screen size
+ * (display:none on it or an ancestor, zero size, or visibility:hidden). Pins skip hidden anchors.
+ */
+export function isElementHidden(el: Element): boolean {
+  if (!el.isConnected || el.getClientRects().length === 0) return true;
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 && r.height === 0) return true;
+  const style = getComputedStyle(el);
+  return style.visibility === 'hidden' || style.display === 'none';
 }

@@ -1,0 +1,9 @@
+{
+  "name": "annotate-astro-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "astro build",
+    "dev": "astro dev"
+  }
+}

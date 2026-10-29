@@ -4,10 +4,14 @@ import {
   type AddCommentRequest,
   type AddCommentResponse,
   type ApiError,
+  type ConfirmIssueRequest,
   type CreateIssueMeta,
   type CreateIssueResponse,
   type GetIssueResponse,
+  type IssueActionResponse,
+  type IssueSummary,
   type ListIssuesResponse,
+  type ReopenIssueRequest,
   type Reporter,
 } from '@annotate/shared';
 import type { WidgetApi } from './types';
@@ -99,6 +103,26 @@ export function createApi(cfg: ApiConfig): WidgetApi {
         body: JSON.stringify(payload),
       });
       return res.comment;
+    },
+
+    async confirmIssue(id: string, reporter: Reporter): Promise<IssueSummary> {
+      const payload: ConfirmIssueRequest = { reporter };
+      const res = await request<IssueActionResponse>(`/v1/issues/${encodeURIComponent(id)}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return res.issue;
+    },
+
+    async reopenIssue(id: string, text: string, reporter: Reporter): Promise<IssueSummary> {
+      const payload: ReopenIssueRequest = { reporter, text };
+      const res = await request<IssueActionResponse>(`/v1/issues/${encodeURIComponent(id)}/reopen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return res.issue;
     },
   };
 }

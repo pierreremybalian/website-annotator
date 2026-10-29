@@ -1,0 +1,22 @@
+---
+import Base from '../layouts/Base.astro';
+import Hero from '../components/Hero.astro';
+import Card from '../components/Card.astro';
+import Plain from '../components/Plain.astro';
+---
+<Base title="Home">
+  <Hero heading="Welcome">A tiny fixture site.</Hero>
+  <div class="grid">
+    <Card title="About us" href="/about/">Who we are.</Card>
+    <Card title="Contact" href="/about/#contact">Say hi.</Card>
+  </div>
+  <Plain />
+</Base>
+
+<style>
+  .grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(2, 1fr);
+  }
+</style>

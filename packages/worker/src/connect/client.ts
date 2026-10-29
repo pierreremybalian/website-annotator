@@ -1,6 +1,8 @@
 // Tiny inline scripts for the connect pages. Plain ES2017, no build step.
 // Each page embeds its data in <script type="application/json" id="cfg">.
 
+import { CREATE_REVIEW_LIST, REVIEW_LIST_NAME, REVIEW_RE } from './util';
+
 /** Shared by every page: [data-close] buttons close the popup, [data-copy="id"] buttons copy #id's text. */
 export const commonJs = /* js */ `
 (function () {
@@ -78,15 +80,18 @@ export const callbackJs = /* js */ `
 })();
 `;
 
-/** /connect/boards: board picker, list defaults, create-a-board, finish, success. */
+/** /connect/boards: board picker, list defaults, create-a-board, finish, success; CLI mode: link a project. */
 export const boardsJs = /* js */ `
 (function () {
   'use strict';
   var cfg = JSON.parse(document.getElementById('cfg').textContent);
   function $(id) { return document.getElementById(id); }
-  var boardsEl = $('boards'), newSel = $('newList'), doneSel = $('doneList'), fields = $('fields');
-  var btn = $('connect'), hint = $('hint'), msg = $('msg'), siteInput = $('siteUrl'), createBtn = $('create');
-  var selected = null, listsReady = false, busy = false, seq = 0;
+  var boardsEl = $('boards'), newSel = $('newList'), doneSel = $('doneList'), reviewSel = $('reviewList'), fields = $('fields');
+  var btn = $('connect'), hint = $('hint'), msg = $('msg'), siteInput = $('siteUrl'), createBtn = $('create'), projectsEl = $('projects');
+  var selected = null, listsReady = false, busy = false, seq = 0, boardLists = [];
+  var REVIEW_RE = ${REVIEW_RE}, CREATE_REVIEW = ${JSON.stringify(CREATE_REVIEW_LIST)};
+  var CREATE_REVIEW_LABEL = ${JSON.stringify(`Create “${REVIEW_LIST_NAME}” list`)};
+  var CREATE_SUB = ' with New, In progress, ${REVIEW_LIST_NAME} and Done lists';
 
   function api(method, path, body) {
     return fetch(path, {
@@ -105,7 +110,10 @@ export const boardsJs = /* js */ `
   }
   function showError(text) { msg.textContent = text || ''; msg.hidden = !text; }
   function setHint(text) { hint.textContent = text || ''; hint.hidden = !text; }
-  function refresh() { btn.disabled = busy || !selected || !listsReady; }
+  function refresh() {
+    btn.disabled = busy || !selected || !listsReady;
+    if (projectsEl) Array.prototype.forEach.call(projectsEl.querySelectorAll('[data-link]'), function (b) { b.disabled = busy; });
+  }
   function siteValue() {
     if (!siteInput) return '';
     var v = siteInput.value.trim();
@@ -124,6 +132,24 @@ export const boardsJs = /* js */ `
     if (value) sel.value = value;
   }
 
+  // Review list: any list but the new/done ones, or create one on Connect.
+  function fillReview(lists, value) {
+    fill(reviewSel, lists);
+    var o = document.createElement('option');
+    o.value = CREATE_REVIEW; o.textContent = CREATE_REVIEW_LABEL;
+    reviewSel.appendChild(o);
+    reviewSel.value = value || CREATE_REVIEW;
+  }
+  function reviewClashes() { return reviewSel.value === newSel.value || reviewSel.value === doneSel.value; }
+  // Changing the new/done list onto the review list moves the review choice to the next best one.
+  function fixReview() {
+    if (!reviewClashes()) return;
+    var match = boardLists.filter(function (l) { return l.id !== newSel.value && l.id !== doneSel.value && REVIEW_RE.test(l.name); })[0];
+    reviewSel.value = match ? match.id : CREATE_REVIEW;
+  }
+  newSel.addEventListener('change', fixReview);
+  doneSel.addEventListener('change', fixReview);
+
   function showLists(data) {
     var lists = data.lists || [];
     if (lists.length < 2) {
@@ -132,8 +158,11 @@ export const boardsJs = /* js */ `
         ? 'This board has only one list. Add another list in Trello, or let us create a new board.'
         : 'This board has no lists yet. Add some in Trello, or let us create a new board.');
     } else {
+      boardLists = lists;
       fill(newSel, lists, data.defaults.newListId);
       fill(doneSel, lists, data.defaults.doneListId);
+      fillReview(lists, data.defaults.reviewListId);
+      fixReview();
       fields.hidden = false; listsReady = true; setHint('');
     }
     refresh();
@@ -174,7 +203,7 @@ export const boardsJs = /* js */ `
     if (createBtn.disabled) return;
     var v = siteValue();
     var name = v ? 'Website feedback – ' + new URL(v).host : cfg.newBoardName;
-    $('createSub').textContent = '“' + name + '” with New, In progress and Done lists';
+    $('createSub').textContent = '“' + name + '”' + CREATE_SUB;
   });
 
   var filter = $('filter');
@@ -212,8 +241,9 @@ export const boardsJs = /* js */ `
   btn.addEventListener('click', function () {
     if (btn.disabled) return;
     showError('');
-    var body = { s: cfg.s, boardId: selected, newListId: newSel.value, doneListIds: [doneSel.value] };
+    var body = { s: cfg.s, boardId: selected, newListId: newSel.value, doneListIds: [doneSel.value], reviewListId: reviewSel.value };
     if (body.newListId === doneSel.value) { showError('Pick a different list for resolved issues than for new ones.'); return; }
+    if (reviewClashes()) { showError('Pick a different list for issues ready for review than for new or resolved ones.'); reviewSel.focus(); return; }
     if (siteInput) {
       var v = siteValue();
       if (!v) { showError('Enter your site’s address, like https://example.com.'); siteInput.focus(); return; }
@@ -229,10 +259,29 @@ export const boardsJs = /* js */ `
     Array.prototype.forEach.call(root.querySelectorAll('[data-k="' + key + '"]'), function (el) { el.textContent = text; });
   }
 
+  // CLI mode: link an existing project.
+  if (projectsEl) projectsEl.addEventListener('click', function (e) {
+    var b = e.target instanceof Element ? e.target.closest('[data-link]') : null;
+    if (!b || busy) return;
+    showError('');
+    busy = true; refresh(); b.textContent = 'Linking…';
+    api('POST', '/connect/link', { s: cfg.s, projectId: b.getAttribute('data-link') }).then(finished).catch(function (err) {
+      busy = false; b.textContent = 'Link'; refresh(); showError(err.message);
+    });
+  });
+
   function finished(res) {
-    var m = res.message;
     $('picker').hidden = true;
     Array.prototype.forEach.call(document.querySelectorAll('.steps i'), function (i) { i.className = 'on'; });
+    if (res.cli) {
+      // The keys went to the terminal; nothing secret comes back to this page.
+      var r = res.cli;
+      $('cliTitle').textContent = (r.action === 'linked' ? 'Linked to ' + r.projectName : 'Connected to ' + r.boardName) + '\u00a0✓';
+      $('cliBoardLink').href = r.boardUrl;
+      $('doneCli').hidden = false;
+      return;
+    }
+    var m = res.message;
     var opener = null;
     try { opener = window.opener; } catch (e) {}
     if (cfg.openerOrigin && opener && !opener.closed) {

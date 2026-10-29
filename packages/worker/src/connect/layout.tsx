@@ -50,6 +50,13 @@ export const LinkIcon = () => (
   </svg>
 );
 
+export const TerminalIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <path d="M7.5 9.5l3 2.5-3 2.5M13 15h4" />
+  </svg>
+);
+
 /** Page data for the inline script. Not executed, so it needs no nonce. */
 export const Data = (props: { value: unknown }) => (
   <script type="application/json" id="cfg" dangerouslySetInnerHTML={{ __html: jsonForScript(props.value) }} />

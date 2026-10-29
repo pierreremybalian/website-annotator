@@ -22,6 +22,9 @@ interface TrelloWebhookPayload {
   model?: { id?: string };
 }
 
+/** The project columns statusForList needs; review_list_id makes a move to the review list → 'review'. */
+type ListIds = Pick<ProjectRow, 'new_list_id' | 'done_list_ids' | 'review_list_id'>;
+
 type Change = { kind: 'status'; status: IssueStatus } | { kind: 'delete' } | null;
 
 const app = new Hono<AppEnv>();
@@ -59,11 +62,11 @@ async function handle(env: Env, payload: TrelloWebhookPayload) {
 
   const issue = await db
     .prepare(
-      `SELECT i.id, i.screenshot_key, i.context_key, p.new_list_id, p.done_list_ids FROM issues i JOIN projects p ON p.id = i.project_id
+      `SELECT i.id, i.screenshot_key, i.context_key, p.new_list_id, p.done_list_ids, p.review_list_id FROM issues i JOIN projects p ON p.id = i.project_id
        WHERE i.trello_card_id = ? AND p.trello_board_id = ?`,
     )
     .bind(cardId, boardId)
-    .first<Pick<IssueRow, 'id' | 'screenshot_key' | 'context_key'> & Pick<ProjectRow, 'new_list_id' | 'done_list_ids'>>();
+    .first<Pick<IssueRow, 'id' | 'screenshot_key' | 'context_key'> & ListIds>();
   if (!issue) return;
 
   const change = changeFor(action, issue);
@@ -76,7 +79,7 @@ async function handle(env: Env, payload: TrelloWebhookPayload) {
   }
 }
 
-function changeFor(action: NonNullable<TrelloWebhookPayload['action']>, project: Pick<ProjectRow, 'new_list_id' | 'done_list_ids'>): Change {
+function changeFor(action: NonNullable<TrelloWebhookPayload['action']>, project: ListIds): Change {
   const data = action.data ?? {};
   switch (action.type) {
     case 'updateCard':

@@ -3,6 +3,7 @@ import { ACTIVATION_PARAM, type Reporter, type WidgetConfig } from '@annotate/sh
 import { createApi } from './api';
 import { installConsoleCapture } from './capture/env';
 import { App, patchHistory, type Activation, type Bridge } from './ui/App';
+import { PIN_LAYER_CSS } from './ui/Pins';
 import { APP_CSS } from './ui/styles';
 import { BASE_CSS } from './ui/theme';
 import { accessKeyFor, loadReporter, storageGet, storageRemove, storageSet } from './ui/storage';
@@ -83,11 +84,29 @@ function createHost(): { host: HTMLElement; root: ShadowRoot } {
     s.setProperty(prop, value, 'important');
   }
   const root = host.attachShadow({ mode: 'open' });
-  const style = document.createElement('style');
-  style.textContent = BASE_CSS + APP_CSS;
-  root.appendChild(style);
+  adoptStyles(root, BASE_CSS + APP_CSS + PIN_LAYER_CSS());
   document.documentElement.appendChild(host);
   return { host, root };
+}
+
+/**
+ * Constructed stylesheets aren't subject to CSP style-src, so the widget stays styled on sites with a
+ * strict CSP (e.g. Astro security.csp). Falls back to a <style> element where unsupported.
+ */
+function adoptStyles(root: ShadowRoot, css: string): void {
+  try {
+    if ('adoptedStyleSheets' in root && 'replaceSync' in CSSStyleSheet.prototype) {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(css);
+      root.adoptedStyleSheets = [sheet];
+      return;
+    }
+  } catch {
+    // fall through
+  }
+  const style = document.createElement('style');
+  style.textContent = css;
+  root.appendChild(style);
 }
 
 function mount(cfg: WidgetConfig, accessKey: string, activation: Activation): void {

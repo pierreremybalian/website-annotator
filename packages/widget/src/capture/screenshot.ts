@@ -158,12 +158,19 @@ function drawContext(src: HTMLCanvasElement, r: Rect, vw: number): Promise<Blob>
   return toBlob(out, 'image/jpeg', JPEG_QUALITY);
 }
 
+export interface CaptureOptions {
+  /** CSS px added around `rect` for the selection crop (clamped to the viewport). Default 0. */
+  padding?: number;
+}
+
 /**
  * Captures the selection (PNG) and the viewport context (JPEG). Never throws: on failure it
  * returns 1×1 placeholders with ok=false so the user can still submit their notes.
- * `rect` is in viewport coordinates. The widget host is hidden while snapdom reads the page.
+ * `rect` is in viewport coordinates and may extend past the viewport (a picked element that's
+ * partly scrolled out): the crop is its visible part plus `padding`, the context image outlines it.
+ * The widget host is hidden while snapdom reads the page.
  */
-export async function captureScreenshots(rect: Rect, host: HTMLElement): Promise<Screenshots> {
+export async function captureScreenshots(rect: Rect, host: HTMLElement, opts: CaptureOptions = {}): Promise<Screenshots> {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const restore = hideHost(host);
   let rendered: Awaited<ReturnType<typeof renderViewport>>;
@@ -178,8 +185,13 @@ export async function captureScreenshots(rect: Rect, host: HTMLElement): Promise
   try {
     const { canvas, vw, vh, warnings } = rendered;
     const k = canvas.width / vw;
-    const r = clampRect(rect, vw, vh);
-    const [selection, context] = await Promise.all([cropSelection(canvas, r, k), drawContext(canvas, r, vw)]);
+    const pad = Math.max(0, opts.padding ?? 0);
+    const crop = clampRect(
+      { x: rect.x - pad, y: rect.y - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 },
+      vw,
+      vh,
+    );
+    const [selection, context] = await Promise.all([cropSelection(canvas, crop, k), drawContext(canvas, rect, vw)]);
     return { selection, context, ok: true, warnings };
   } catch (err) {
     return placeholderScreenshots(err instanceof Error ? err.message : String(err));

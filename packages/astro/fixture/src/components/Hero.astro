@@ -1,0 +1,20 @@
+---
+interface Props {
+  heading: string;
+}
+const { heading } = Astro.props;
+---
+<section class="hero">
+  <h1>{heading}</h1>
+  <p class="lede"><slot /></p>
+</section>
+
+<style>
+  .hero {
+    padding: 4rem 1rem;
+    background: #f5f1ea;
+  }
+  .lede {
+    font-size: 1.25rem;
+  }
+</style>

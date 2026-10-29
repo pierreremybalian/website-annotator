@@ -1,23 +1,53 @@
 // Trello text formatting: card name and description for a new issue, and widget comments.
 
-import type { CaptureEnv, Comment, ConsoleEntry, CreateIssueMeta } from '@annotate/shared';
+import type { CaptureEnv, Comment, ConsoleEntry, CreateIssueMeta, SourceHint } from '@annotate/shared';
 import type { TrelloComment } from './trello';
 
-const VIA_WIDGET = /^\*\*(.+?)\*\* \(via widget\): ([\s\S]*)$/;
+const VIA = /^\*\*(.+?)\*\* \(via (widget|agent)\): ([\s\S]*)$/;
 
-/** Name as it appears in a widget comment prefix; '*' and newlines would break parsing it back. */
-export const commentAuthorName = (name: string) => name.replace(/[*\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Anonymous';
+/** Name as it appears in a comment prefix; '*' and newlines would break parsing it back. */
+export const commentAuthorName = (name: string, fallback = 'Anonymous') => name.replace(/[*\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() || fallback;
 
 /** Trello comment text for a comment posted from the widget. */
 export const widgetCommentText = (name: string, text: string) => `**${commentAuthorName(name)}** (via widget): ${text}`;
 
-/** Map a Trello comment to the API shape, recognising comments posted from the widget. */
+/** Trello comment text for a comment posted through the agent API (author defaults to "Agent"). */
+export const agentCommentText = (name: string | undefined, text: string) => `**${commentAuthorName(name ?? '', 'Agent')}** (via agent): ${text}`;
+
+/** Map a Trello comment to the API shape, recognising comments posted from the widget or by an agent. */
 export function parseComment(tc: TrelloComment): Comment {
   const text = tc.data?.text ?? '';
-  const m = VIA_WIDGET.exec(text);
-  if (m) return { id: tc.id, author: m[1]!, text: m[2]!, createdAt: tc.date, viaWidget: true };
+  const m = VIA.exec(text);
+  if (m) {
+    const via = m[2] as 'widget' | 'agent';
+    return { id: tc.id, author: m[1]!, text: m[3]!, createdAt: tc.date, viaWidget: via === 'widget', via };
+  }
   const author = tc.memberCreator?.fullName || tc.memberCreator?.username || 'Trello user';
-  return { id: tc.id, author, text, createdAt: tc.date, viaWidget: false };
+  return { id: tc.id, author, text, createdAt: tc.date, viaWidget: false, via: 'trello' };
+}
+
+/** One source hint as a short, grep-able label: "acf/hero", "src/components/Hero.astro:12". */
+export function sourceLabel(h: SourceHint): string {
+  const file = h.file ? (h.line ? `${h.file}:${h.line}` : h.file) : null;
+  switch (h.kind) {
+    case 'astro-cid':
+      return `data-astro-cid-${h.value}`;
+    case 'wp-block':
+      return h.value;
+    default:
+      return file ?? h.value;
+  }
+}
+
+/** The first `max` distinct source labels, nearest first. */
+export function sourceLabels(sources: readonly SourceHint[] | null | undefined, max = 3): string[] {
+  const out: string[] = [];
+  for (const h of sources ?? []) {
+    const label = sourceLabel(h).trim();
+    if (label && !out.includes(label)) out.push(label);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 /** Trello allows 16384; stay comfortably below. */
@@ -74,6 +104,8 @@ export function cardDescription(meta: CreateIssueMeta): string {
     `**Reporter:** ${reporter.name.trim()} <${reporter.email.trim()}>`,
     `**Env:** ${envLine(env)}`,
   ];
+  const sources = sourceLabels(meta.context?.element?.sources);
+  if (sources.length) lines.push(`**Source:** ${sources.map((s) => `\`${truncate(s.replace(/[`\r\n]/g, ''), 300)}\``).join(', ')}`);
   let desc = lines.join('\n');
 
   const errors = Array.isArray(env.consoleErrors) ? env.consoleErrors : [];

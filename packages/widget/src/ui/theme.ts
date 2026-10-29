@@ -13,6 +13,7 @@ export const BASE_CSS = `
   --an-border: #e3e5e8;
   --an-status-new: #ff4f2b;
   --an-status-in_progress: #f5a524;
+  --an-status-review: #3b82f6;
   --an-status-resolved: #17a34a;
   --an-status-archived: #9ca3af;
   --an-radius: 10px;

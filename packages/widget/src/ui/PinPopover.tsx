@@ -1,13 +1,25 @@
-// Popover for one pin: screenshot, status, notes, comments, reply. Only used by Pins.tsx.
+// Popover for one issue: screenshot, status, review banner, notes, comments, reply. Only used by Pins.tsx.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Comment, IssueDetail, IssueStatus, IssueSummary, Reporter } from '@annotate/shared';
 import type { WidgetApi } from '../types';
 
+/**
+ * Where the popover goes:
+ *   pin  = beside a pin (viewport position of the pin's box);
+ *   edge = to the left of a vertical edge at x (the issues panel), top-aligned with `top`. With no room
+ *          there (narrow screens, where the panel is a bottom sheet) it sits at the top of the screen.
+ */
+export type PopoverAnchor =
+  | { kind: 'pin'; left: number; top: number; size: number }
+  | { kind: 'edge'; x: number; top: number };
+
 export interface PinPopoverProps {
   issue: IssueSummary;
   detached: boolean;
-  /** Viewport position of the pin this popover belongs to. */
-  pin: { left: number; top: number; size: number };
+  /** The element exists but isn't visible at this screen size (opened from the panel). */
+  hidden?: boolean;
+  anchor: PopoverAnchor;
+  /** The area the popover may use (the viewport minus the issues panel, for pin anchors). */
   vw: number;
   vh: number;
   api: WidgetApi;
@@ -17,6 +29,8 @@ export interface PinPopoverProps {
   /** Last loaded detail for this issue, shown immediately while it refreshes. */
   cached?: IssueDetail;
   onDetail(detail: IssueDetail): void;
+  /** Confirm/reopen succeeded: the issue as the Worker now has it. */
+  onUpdated(issue: IssueSummary): void;
 }
 
 const WIDTH = 340;
@@ -26,6 +40,7 @@ const MARGIN = 8;
 export const STATUS_LABEL: Record<IssueStatus, string> = {
   new: 'New',
   in_progress: 'In progress',
+  review: 'Ready for review',
   resolved: 'Resolved',
   archived: 'Archived',
 };
@@ -57,15 +72,18 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Keep keystrokes typed into our fields away from the host page's keyboard shortcuts. */
 const shield = (e: Event) => e.stopPropagation();
 
-function place(
-  pin: PinPopoverProps['pin'],
-  w: number,
-  h: number,
-  vw: number,
-  vh: number,
-): { left: number; top: number } {
+function place(anchor: PopoverAnchor, w: number, h: number, vw: number, vh: number): { left: number; top: number } {
   const maxLeft = Math.max(MARGIN, vw - MARGIN - w);
   const maxTop = Math.max(MARGIN, vh - MARGIN - h);
+  const clamp = (left: number, top: number) => ({
+    left: Math.min(Math.max(left, MARGIN), maxLeft),
+    top: Math.min(Math.max(top, MARGIN), maxTop),
+  });
+  if (anchor.kind === 'edge') {
+    const beside = anchor.x - GAP - w;
+    return beside >= MARGIN ? clamp(beside, anchor.top) : clamp((vw - w) / 2, MARGIN);
+  }
+  const pin = anchor;
   const right = pin.left + pin.size + GAP;
   const leftSide = pin.left - GAP - w;
   let left: number;
@@ -83,22 +101,37 @@ function place(
     const above = pin.top - GAP - h;
     top = below + h <= vh - MARGIN ? below : above >= MARGIN ? above : below;
   }
-  return { left: Math.min(Math.max(left, MARGIN), maxLeft), top: Math.min(Math.max(top, MARGIN), maxTop) };
+  return clamp(left, top);
 }
 
+function errorText(prefix: string, err: unknown): string {
+  const msg = err instanceof Error ? err.message.trim() : '';
+  return `${prefix} ${msg || 'Try again.'}`;
+}
+
+type ReviewStep = 'ask' | 'confirm' | 'reopen';
+
 export function PinPopover(props: PinPopoverProps) {
-  const { issue, detached, pin, vw, vh, api, reporter, onReporterChange, onClose, cached } = props;
+  const { issue, detached, hidden, anchor, vw, vh, api, reporter, onReporterChange, onClose, cached } = props;
 
   const rootRef = useRef<HTMLDivElement>(null);
   const lightboxRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   // Latest callbacks for listeners registered once.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const onDetailRef = useRef(props.onDetail);
   onDetailRef.current = props.onDetail;
+  const onUpdatedRef = useRef(props.onUpdated);
+  onUpdatedRef.current = props.onUpdated;
+  const aliveRef = useRef(true);
+  useEffect(() => () => {
+    aliveRef.current = false;
+  }, []);
 
   const [detail, setDetail] = useState<IssueDetail | null>(cached ?? null);
   const [loading, setLoading] = useState(true);
@@ -111,6 +144,13 @@ export function PinPopover(props: PinPopoverProps) {
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+
+  // Review banner (status 'review'): confirm or reopen with a note.
+  const [step, setStep] = useState<ReviewStep>('ask');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState<'confirm' | 'reopen' | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<'confirmed' | 'reopened' | null>(null);
 
   const [lightbox, setLightbox] = useState(false);
   const lightboxOpen = useRef(false);
@@ -169,7 +209,8 @@ export function PinPopover(props: PinPopoverProps) {
         (n) =>
           n === rootRef.current ||
           n === lightboxRef.current ||
-          (n instanceof Element && n.hasAttribute('data-an-pin')),
+          // Pins and panel rows switch the popover themselves.
+          (n instanceof Element && (n.hasAttribute('data-an-pin') || n.hasAttribute('data-an-row'))),
       );
     // Document level: events from inside the shadow root are retargeted to the host (and the path is
     // opaque if the root is closed), so leave those to the shadow-root listener below.
@@ -212,19 +253,25 @@ export function PinPopover(props: PinPopoverProps) {
     if (posted.length && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [posted.length]);
 
+  /** The saved reporter, or the name + email typed here (saved via onReporterChange); null if those aren't valid yet. */
+  function takeReporter(): Reporter | null {
+    if (reporter) return reporter;
+    const n = name.trim();
+    const em = email.trim();
+    if (!n || !EMAIL_RE.test(em)) return null;
+    const who = { name: n, email: em };
+    onReporterChange(who);
+    return who;
+  }
+  const NEED_WHO = 'Add your name and a valid email first.';
+
   async function send() {
     const body = text.trim();
     if (!body || sending) return;
-    let who = reporter;
+    const who = takeReporter();
     if (!who) {
-      const n = name.trim();
-      const em = email.trim();
-      if (!n || !EMAIL_RE.test(em)) {
-        setSendError('Add your name and a valid email first.');
-        return;
-      }
-      who = { name: n, email: em };
-      onReporterChange(who);
+      setSendError(NEED_WHO);
+      return;
     }
     setSending(true);
     setSendError(null);
@@ -250,8 +297,129 @@ export function PinPopover(props: PinPopoverProps) {
     }
   };
 
-  const pos = place(pin, size.w || WIDTH, size.h, vw, vh);
-  const status = detail?.status ?? issue.status;
+  async function confirmFix(who: Reporter) {
+    setBusy('confirm');
+    setReviewError(null);
+    try {
+      const updated = await api.confirmIssue(issue.id, who);
+      if (!aliveRef.current) return;
+      setOutcome('confirmed');
+      setDetail((d) => (d ? { ...d, status: updated.status } : d));
+      onUpdatedRef.current(updated);
+    } catch (err) {
+      if (!aliveRef.current) return;
+      console.warn('[annotate] could not confirm issue', err);
+      setReviewError(errorText("Couldn't confirm.", err));
+      setReload((n) => n + 1); // the status may have changed elsewhere
+    } finally {
+      if (aliveRef.current) setBusy(null);
+    }
+  }
+
+  function looksGood() {
+    if (busy) return;
+    const who = takeReporter();
+    if (who) void confirmFix(who);
+    else {
+      setReviewError(null);
+      setStep('confirm');
+    }
+  }
+
+  function submitConfirm() {
+    if (busy) return;
+    const who = takeReporter();
+    if (!who) {
+      setReviewError(NEED_WHO);
+      nameRef.current?.focus();
+      return;
+    }
+    void confirmFix(who);
+  }
+
+  async function submitReopen() {
+    if (busy) return;
+    const body = note.trim();
+    if (!body) {
+      setReviewError('Describe what still looks wrong.');
+      noteRef.current?.focus();
+      return;
+    }
+    const who = takeReporter();
+    if (!who) {
+      setReviewError(NEED_WHO);
+      return;
+    }
+    setBusy('reopen');
+    setReviewError(null);
+    try {
+      const updated = await api.reopenIssue(issue.id, body, who);
+      if (!aliveRef.current) return;
+      setOutcome('reopened');
+      setNote('');
+      setDetail((d) => (d ? { ...d, status: updated.status } : d));
+      onUpdatedRef.current(updated);
+      setReload((n) => n + 1); // the note is posted as a comment
+    } catch (err) {
+      if (!aliveRef.current) return;
+      console.warn('[annotate] could not reopen issue', err);
+      setReviewError(errorText("Couldn't reopen.", err));
+      setReload((n) => n + 1);
+    } finally {
+      if (aliveRef.current) setBusy(null);
+    }
+  }
+
+  const onNoteKey = (e: KeyboardEvent) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      void submitReopen();
+    }
+  };
+
+  const cancelStep = () => {
+    setStep('ask');
+    setReviewError(null);
+  };
+
+  // Focus the first field of a review step.
+  useEffect(() => {
+    if (step === 'reopen') noteRef.current?.focus();
+    else if (step === 'confirm') nameRef.current?.focus();
+  }, [step]);
+
+  const pos = place(anchor, size.w || WIDTH, size.h, vw, vh);
+  // Pins keeps the summary in sync with loaded details and confirm/reopen results.
+  const status = issue.status;
+  const showReview = status === 'review' || outcome !== null;
+  const askWhoInBanner = !reporter && status === 'review' && !outcome && step !== 'ask';
+
+  const whoFields = (cls: string, focusRef?: typeof nameRef) => (
+    <div class={cls}>
+      <input
+        ref={focusRef}
+        type="text"
+        placeholder="Your name"
+        aria-label="Your name"
+        autocomplete="name"
+        value={name}
+        onInput={(e) => setName(e.currentTarget.value)}
+        onKeyDown={shield}
+        onKeyUp={shield}
+      />
+      <input
+        type="email"
+        placeholder="Email"
+        aria-label="Email"
+        autocomplete="email"
+        value={email}
+        onInput={(e) => setEmail(e.currentTarget.value)}
+        onKeyDown={shield}
+        onKeyUp={shield}
+      />
+    </div>
+  );
   const contextUrl = detail?.contextUrl;
   const notes = detail?.notes?.trim();
   const createdAt = issue.createdAt;
@@ -311,7 +479,114 @@ export function PinPopover(props: PinPopoverProps) {
               )}
             </div>
 
-            {detached && (
+            {showReview && (
+              <div
+                class={`an-pop-review${outcome ? ' an-pop-review--done' : ''}`}
+                role={outcome ? 'status' : 'group'}
+                aria-label={outcome ? undefined : 'Review the fix'}
+              >
+                {outcome === 'confirmed' && (
+                  <p class="an-pop-review-title">
+                    <span class="an-pop-review-check" aria-hidden="true">✓</span> Thanks! Marked as done.
+                  </p>
+                )}
+                {outcome === 'reopened' && (
+                  <p class="an-pop-review-title">Thanks. It's reopened so the team can take another look.</p>
+                )}
+                {!outcome && (
+                  <>
+                    <p class="an-pop-review-title">Marked as fixed. Does it look right now?</p>
+                    {step === 'ask' && (
+                      <div class="an-pop-review-actions">
+                        <button
+                          type="button"
+                          class="an-pop-btn an-pop-btn--ok"
+                          disabled={busy !== null}
+                          onClick={looksGood}
+                        >
+                          {busy === 'confirm' ? 'Confirming…' : 'Looks good ✓'}
+                        </button>
+                        <button
+                          type="button"
+                          class="an-pop-btn an-pop-btn--ghost"
+                          disabled={busy !== null}
+                          onClick={() => {
+                            setReviewError(null);
+                            setStep('reopen');
+                          }}
+                        >
+                          Still broken
+                        </button>
+                      </div>
+                    )}
+                    {step === 'confirm' && (
+                      <form
+                        class="an-pop-review-form"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          submitConfirm();
+                        }}
+                      >
+                        <div class="an-pop-review-label">Add your name to confirm</div>
+                        {whoFields('an-pop-review-who', nameRef)}
+                        <div class="an-pop-review-actions">
+                          <button type="submit" class="an-pop-btn an-pop-btn--ok" disabled={busy !== null}>
+                            {busy === 'confirm' ? 'Confirming…' : 'Confirm fix'}
+                          </button>
+                          <button type="button" class="an-pop-btn an-pop-btn--ghost" disabled={busy !== null} onClick={cancelStep}>
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                    {step === 'reopen' && (
+                      <form
+                        class="an-pop-review-form"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void submitReopen();
+                        }}
+                      >
+                        <textarea
+                          ref={noteRef}
+                          rows={3}
+                          required
+                          placeholder="What still looks wrong?"
+                          aria-label="What still looks wrong?"
+                          value={note}
+                          disabled={busy !== null}
+                          onInput={(e) => setNote(e.currentTarget.value)}
+                          onKeyDown={onNoteKey}
+                          onKeyUp={shield}
+                        />
+                        {!reporter && whoFields('an-pop-review-who')}
+                        <div class="an-pop-review-actions">
+                          <button type="submit" class="an-pop-btn an-pop-btn--danger" disabled={busy !== null || !note.trim()}>
+                            {busy === 'reopen' ? 'Reopening…' : 'Reopen issue'}
+                          </button>
+                          <button type="button" class="an-pop-btn an-pop-btn--ghost" disabled={busy !== null} onClick={cancelStep}>
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                    {reviewError && (
+                      <div class="an-pop-error an-pop-review-error" role="alert">
+                        {reviewError}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {hidden && (
+              <div class="an-pop-note">
+                Not visible at this screen size, reported at {issue.anchor.viewportWidth}px. Resize the window to see it
+                on the page.
+              </div>
+            )}
+            {detached && !hidden && (
               <div class="an-pop-note">
                 Position may have moved: the page changed since this was reported, so the pin shows where it was
                 originally.
@@ -347,6 +622,11 @@ export function PinPopover(props: PinPopoverProps) {
                   <li key={c.id} class="an-pop-comment">
                     <div class="an-pop-comment-head">
                       <span class="an-pop-comment-author">{c.author}</span>
+                      {c.via === 'agent' && (
+                        <span class="an-pop-tag" title="Posted by a coding agent">
+                          agent
+                        </span>
+                      )}
                       <time dateTime={c.createdAt} title={fullDate(c.createdAt)}>
                         {timeAgo(c.createdAt)}
                       </time>
@@ -366,30 +646,8 @@ export function PinPopover(props: PinPopoverProps) {
             void send();
           }}
         >
-          {!reporter && (
-            <div class="an-pop-reply-who">
-              <input
-                type="text"
-                placeholder="Your name"
-                aria-label="Your name"
-                autocomplete="name"
-                value={name}
-                onInput={(e) => setName(e.currentTarget.value)}
-                onKeyDown={shield}
-                onKeyUp={shield}
-              />
-              <input
-                type="email"
-                placeholder="Email"
-                aria-label="Email"
-                autocomplete="email"
-                value={email}
-                onInput={(e) => setEmail(e.currentTarget.value)}
-                onKeyDown={shield}
-                onKeyUp={shield}
-              />
-            </div>
-          )}
+          {/* The review banner asks for the same name + email while it's open: one set of fields at a time. */}
+          {!reporter && !askWhoInBanner && whoFields('an-pop-reply-who')}
           <textarea
             ref={textRef}
             rows={2}
@@ -460,10 +718,11 @@ export function PinPopover(props: PinPopoverProps) {
   );
 }
 
+// Stacking inside the pin layer: highlight, pins (1), issues panel (2), popover (3), lightbox (4).
 export const POPOVER_CSS = `
 .an-pop {
   position: fixed;
-  z-index: 2;
+  z-index: 3;
   width: ${WIDTH}px;
   max-width: calc(100vw - ${MARGIN * 2}px);
   max-height: calc(100vh - ${MARGIN * 2}px);
@@ -515,6 +774,38 @@ export const POPOVER_CSS = `
   font-size: 12px; background: color-mix(in srgb, var(--an-status-in_progress) 10%, var(--an-surface));
 }
 .an-pop-notes { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.an-pop-review {
+  margin-top: 10px; padding: 10px 11px 11px; border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--an-status-review) 45%, var(--an-surface));
+  border-left-width: 4px; border-left-color: var(--an-status-review);
+  background: color-mix(in srgb, var(--an-status-review) 9%, var(--an-surface));
+}
+.an-pop-review--done {
+  border-color: color-mix(in srgb, var(--an-status-resolved) 45%, var(--an-surface));
+  border-left-color: var(--an-status-resolved);
+  background: color-mix(in srgb, var(--an-status-resolved) 9%, var(--an-surface));
+}
+.an-pop-review-title { margin: 0; font-size: 13px; font-weight: 650; line-height: 1.35; }
+.an-pop-review-check {
+  display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 2px; border-radius: 50%;
+  background: var(--an-status-resolved); color: #fff; font-size: 11px; vertical-align: -3px;
+}
+.an-pop-review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.an-pop-review-form { margin: 8px 0 0; }
+.an-pop-review-label { margin-bottom: 6px; font-size: 12px; color: var(--an-muted); }
+.an-pop-review-who { display: flex; gap: 6px; margin-top: 6px; }
+.an-pop-review-form .an-pop-review-label + .an-pop-review-who { margin-top: 0; }
+.an-pop-review-who input { flex: 1; min-width: 0; }
+.an-pop-review input, .an-pop-review textarea {
+  display: block; width: 100%; padding: 7px 9px; margin: 0;
+  border: 1px solid var(--an-border); border-radius: 7px; background: var(--an-surface);
+  font-size: 13px; outline: none;
+}
+.an-pop-review textarea { resize: vertical; min-height: 60px; max-height: 160px; }
+.an-pop-review input:focus, .an-pop-review textarea:focus {
+  border-color: var(--an-status-review); box-shadow: 0 0 0 3px color-mix(in srgb, var(--an-status-review) 20%, transparent);
+}
+.an-pop-review-error { margin-top: 8px; font-size: 12px; }
 .an-pop-section {
   display: flex; align-items: baseline; gap: 8px;
   margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
@@ -528,6 +819,11 @@ export const POPOVER_CSS = `
 .an-pop-comment:first-child { border-top: 0; padding-top: 2px; }
 .an-pop-comment-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--an-muted); }
 .an-pop-comment-author { font-weight: 650; color: var(--an-ink); }
+.an-pop-tag {
+  align-self: center; padding: 1px 5px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; line-height: 14px; letter-spacing: .04em; text-transform: uppercase;
+  background: color-mix(in srgb, var(--an-status-review) 14%, var(--an-surface)); color: var(--an-ink);
+}
 .an-pop-comment-text { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .an-pop-reply { flex: none; padding: 10px 14px 12px; border-top: 1px solid var(--an-border); background: var(--an-surface); }
 .an-pop-reply-who { display: flex; gap: 6px; margin-bottom: 6px; }
@@ -545,11 +841,16 @@ export const POPOVER_CSS = `
 .an-pop-reply-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
 .an-pop-reply-send { display: inline-flex; align-items: center; gap: 8px; }
 .an-pop-hint { font-size: 11px; color: var(--an-muted); }
-.an-pop-btn {
+/* .an-pop .an-pop-btn: beats the ".an-pop button { color: inherit }" reset above. */
+.an-pop .an-pop-btn {
   padding: 6px 14px; border: 0; border-radius: 7px; cursor: pointer;
   background: var(--an-accent); color: var(--an-accent-ink); font-weight: 600; font-size: 13px;
 }
-.an-pop-btn:disabled { opacity: .5; cursor: default; }
+.an-pop .an-pop-btn:disabled { opacity: .5; cursor: default; }
+.an-pop .an-pop-btn--ok { background: var(--an-status-resolved); color: #fff; }
+.an-pop .an-pop-btn--danger { background: var(--an-ink); color: #fff; }
+.an-pop .an-pop-btn--ghost { background: var(--an-surface); color: var(--an-ink); box-shadow: inset 0 0 0 1px var(--an-border); }
+.an-pop .an-pop-btn--ghost:hover:not(:disabled) { background: var(--an-surface-2); }
 .an-pop-link {
   display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; cursor: pointer;
   color: var(--an-ink); font-size: 13px; font-weight: 600; text-decoration: underline;
@@ -557,6 +858,8 @@ export const POPOVER_CSS = `
 }
 .an-pop-link:hover { text-decoration-color: currentColor; }
 .an-pop :focus-visible { outline: 2px solid var(--an-accent); outline-offset: 2px; }
+/* Fields have their own focus ring (border + glow). */
+.an-pop :is(input, textarea):focus-visible { outline: none; }
 .an-pop-spinner {
   display: inline-block; width: 12px; height: 12px; border-radius: 50%;
   border: 2px solid var(--an-border); border-top-color: var(--an-muted);
@@ -564,7 +867,7 @@ export const POPOVER_CSS = `
 }
 @keyframes an-pop-spin { to { transform: rotate(360deg); } }
 .an-pop-lightbox {
-  position: fixed; inset: 0; z-index: 3; pointer-events: auto;
+  position: fixed; inset: 0; z-index: 4; pointer-events: auto;
   display: grid; place-items: center; padding: 24px;
   background: rgba(15,17,21,.82); cursor: zoom-out;
 }

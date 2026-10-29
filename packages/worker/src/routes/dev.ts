@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono';
 import type { AppEnv } from '../env';
 import { nowIso } from '../db';
 import { apiError } from '../auth';
-import { encryptToken } from '../crypto';
+import { encryptToken, sha256Hex } from '../crypto';
 import { MOCK_TOKEN, mockMoveCard, mockTrelloState } from '../trello';
 
 export const DEV_PROJECT = {
@@ -16,6 +16,8 @@ export const DEV_PROJECT = {
   boardName: 'Mock Board',
   newListId: 'list-1',
   doneListIds: ['list-3'],
+  /** Agent API token for the dev project (stored hashed, like real ones). */
+  agentToken: 'at_dev-token',
 };
 
 const app = new Hono<AppEnv>();
@@ -44,7 +46,20 @@ async function seed(c: Context<AppEnv>) {
     .bind(p.id, p.name, p.publicKey, p.accessKey, JSON.stringify(p.allowedOrigins), tokenEnc, p.boardId, p.boardName, boardUrl, p.newListId, JSON.stringify(p.doneListIds), now, now)
     .run();
   const row = await c.env.DB.prepare('SELECT id FROM projects WHERE public_key = ?').bind(p.publicKey).first<{ id: string }>();
-  return c.json({ projectId: row?.id ?? p.id, projectKey: p.publicKey, accessKey: p.accessKey, boardName: p.boardName, boardUrl, endpoint: c.env.PUBLIC_URL });
+  const projectId = row?.id ?? p.id;
+  // The review list is left alone: ensureReviewList creates it on the first agent resolve.
+  await c.env.DB.prepare(`INSERT OR REPLACE INTO agent_tokens (id, project_id, token_hash, label, created_at) VALUES ('dev-agent', ?, ?, 'dev', ?)`)
+    .bind(projectId, await sha256Hex(p.agentToken), now)
+    .run();
+  return c.json({
+    projectId,
+    projectKey: p.publicKey,
+    accessKey: p.accessKey,
+    agentToken: p.agentToken,
+    boardName: p.boardName,
+    boardUrl,
+    endpoint: c.env.PUBLIC_URL,
+  });
 }
 
 app.post('/seed', seed);

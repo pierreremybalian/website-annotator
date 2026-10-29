@@ -126,6 +126,22 @@ h1 { font-size: 23px; line-height: 1.25; letter-spacing: -0.02em; margin: 0 0 8p
 .row.create .name { color: var(--accent); }
 .row.create:hover { background: var(--accent-soft); }
 .row.create:disabled { cursor: default; opacity: .7; }
+/* CLI mode: the link-a-project and new-board sections */
+.section { margin: 0 0 28px; }
+.rows ~ .section, .empty ~ .section { margin: 28px 0 0; }
+.section-title { font-size: 16px; line-height: 1.3; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 4px; }
+.section .section-title { margin-bottom: 12px; }
+.section-sub { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
+.row.project { cursor: default; }
+.row.project:hover { border-color: var(--border); }
+.link-btn {
+  flex: none; min-height: 34px; padding: 0 14px; border-radius: 8px;
+  border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; transition: background-color .15s, color .15s;
+}
+.link-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.link-btn:focus-visible { outline: 3px solid var(--accent-soft); outline-offset: 1px; }
+.link-btn:disabled { opacity: .45; cursor: default; }
 .section-label { margin: 18px 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .empty { color: var(--muted); font-size: 14px; padding: 6px 2px; }
 

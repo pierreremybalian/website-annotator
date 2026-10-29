@@ -11,6 +11,8 @@ interface FormProps {
   side: 'an-left' | 'an-right';
   /** Object URL of the selection PNG; null when capture failed. */
   previewUrl: string | null;
+  /** What was picked: `h2.hero-title` or `Area 320×200`. */
+  selectionLabel?: string;
   captureError?: string | null;
   /** Saved or prefilled reporter. When null, Name and Email fields are shown. */
   reporter: Reporter | null;
@@ -23,7 +25,7 @@ interface FormProps {
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
-export function Form({ side, previewUrl, captureError, reporter, reporterDraft, submit, onCancel }: FormProps) {
+export function Form({ side, previewUrl, selectionLabel, captureError, reporter, reporterDraft, submit, onCancel }: FormProps) {
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [name, setName] = useState(reporter?.name ?? reporterDraft.name ?? '');
@@ -100,19 +102,26 @@ export function Form({ side, previewUrl, captureError, reporter, reporterDraft, 
 
   return (
     <div ref={panelRef} class={`an-panel ${side}`} role="dialog" aria-label="Report an issue" data-annotate="form">
-      <div class="an-panel-head">
+      <div class="an-form-head">
         <h2>Report an issue</h2>
         <button type="button" class="an-x" aria-label="Cancel" onClick={onCancel} disabled={busy}>
           ×
         </button>
       </div>
       <form ref={formRef} class="an-form" onSubmit={onSubmit} onKeyDown={onKeyDown}>
-        <div class="an-preview">
-          {previewUrl ? (
-            <img src={previewUrl} alt="Selected area" />
-          ) : (
-            <div class="an-preview-missing">
-              Screenshot unavailable{captureError ? ` (${captureError})` : ''}. You can still send your notes.
+        <div class="an-preview-wrap">
+          <div class="an-preview">
+            {previewUrl ? (
+              <img src={previewUrl} alt={selectionLabel ? `Selected: ${selectionLabel}` : 'Selected area'} />
+            ) : (
+              <div class="an-preview-missing">
+                Screenshot unavailable{captureError ? ` (${captureError})` : ''}. You can still send your notes.
+              </div>
+            )}
+          </div>
+          {selectionLabel && (
+            <div class="an-picked" title={selectionLabel}>
+              {selectionLabel}
             </div>
           )}
         </div>
