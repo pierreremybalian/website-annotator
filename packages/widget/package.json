@@ -1,6 +1,14 @@
 {
   "name": "@annotate/widget",
+  "version": "0.1.0",
   "private": true,
+  "author": "Pierre Balian (https://balian.dev)",
+  "homepage": "https://github.com/pierreremybalian/website-annotator#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pierreremybalian/website-annotator.git"
+  },
+  "bugs": "https://github.com/pierreremybalian/website-annotator/issues",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -1,10 +1,20 @@
 {
   "name": "annotate",
+  "version": "0.1.0",
   "private": true,
+  "author": "Pierre Balian (https://balian.dev)",
+  "homepage": "https://github.com/pierreremybalian/website-annotator#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pierreremybalian/website-annotator.git"
+  },
+  "bugs": "https://github.com/pierreremybalian/website-annotator/issues",
   "type": "module",
   "packageManager": "pnpm@9.15.9",
   "scripts": {
     "build": "pnpm --filter @annotate/widget build",
+    "package:plugin": "scripts/package-plugin.sh",
+    "deploy": "scripts/deploy.sh",
     "dev:worker": "pnpm --filter @annotate/worker dev",
     "dev:widget": "pnpm --filter @annotate/widget dev",
     "typecheck": "pnpm -r typecheck",

@@ -1,12 +1,13 @@
 <?php
 /**
  * Plugin Name:       Annotate – Website Feedback
+ * Plugin URI:        https://github.com/pierreremybalian/website-annotator
  * Description:       Let your team and clients report website issues straight to Trello: drag a box over the problem, add a note, done.
  * Version:           0.1.0
  * Requires at least: 5.7
  * Requires PHP:      8.0
- * Author:            Balian Design
- * Author URI:        https://baliandesign.com
+ * Author:            Pierre Balian
+ * Author URI:        https://balian.dev
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       annotate

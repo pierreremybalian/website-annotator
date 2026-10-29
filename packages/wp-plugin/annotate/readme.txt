@@ -18,6 +18,9 @@ Annotate adds a feedback button to your site. Click it, drag a box over the prob
 * Clients who aren't logged in can be given a private access link. Opening it once turns on feedback mode in their browser.
 * Regular visitors never download the widget.
 
+Built by Pierre Balian — https://balian.dev
+Source and issues: https://github.com/pierreremybalian/website-annotator
+
 == Installation ==
 
 1. Upload the `annotate` folder to `/wp-content/plugins/` and activate it.
