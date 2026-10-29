@@ -14,7 +14,13 @@ CLOUDFLARE_ACCOUNT_ID=$(sed -nE 's/^account_id = "([0-9a-f]+)".*/\1/p' wrangler.
 export CLOUDFLARE_ACCOUNT_ID
 
 # Migrations are additive, so they go first: the running Worker keeps working against the new schema.
-npx wrangler d1 migrations apply annotate --remote
+# D1 sometimes rejects the first request after wrangler refreshes its OAuth login (error 7403); retry.
+for attempt in 1 2 3; do
+  npx wrangler d1 migrations apply annotate --remote && break
+  [ "$attempt" = 3 ] && exit 1
+  echo "D1 request failed (attempt $attempt); retrying in 5s…"
+  sleep 5
+done
 
 grep -qE '^TOKEN_ENC_KEY=.+' "$VARS" || echo "TOKEN_ENC_KEY=$(openssl rand -base64 32)" >> "$VARS"
 grep -qE '^SIGNING_SECRET=.+' "$VARS" || echo "SIGNING_SECRET=$(openssl rand -base64 32)" >> "$VARS"
