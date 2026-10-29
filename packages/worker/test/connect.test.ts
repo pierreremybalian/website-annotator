@@ -4,7 +4,7 @@ import type { ApiError } from '@annotate/shared';
 import app from '../src/index';
 import { decryptToken } from '../src/crypto';
 import type { ConnectSessionRow, ProjectRow } from '../src/db';
-import { MOCK_ORG_ID, MOCK_TOKEN, mockTrelloState, resetMockTrello } from '../src/trello';
+import { MOCK_ORG_ID, MOCK_TOKEN, MOCK_TOKEN_OUTSIDER, mockTrelloState, resetMockTrello } from '../src/trello';
 import type { ConnectFinishResponse, ConnectListsResponse } from '../src/routes/connect';
 
 const BASE = 'http://localhost:8787'; // PUBLIC_URL in wrangler.toml
@@ -220,8 +220,24 @@ describe('connect flow', () => {
     const flow = await start('origin=http://site.test&name=Site', f);
     const res = await flow.post('/connect/session', { s: flow.s, token: MOCK_TOKEN });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as ApiError).error).toMatch(/isn’t in the allowed workspace/);
+    expect(((await res.json()) as ApiError).error).toMatch(/isn’t part of the workspace/);
     expect((await session(flow.s))!.trello_token_enc).toBeNull();
+  });
+
+  it('without ALLOWED_TRELLO_ORG, the first member to log in becomes owner and outsiders get 403', async () => {
+    await env.DB.prepare("DELETE FROM settings").run();
+    const owner = await start('origin=http://site.test&name=Site');
+    expect((await owner.post('/connect/session', { s: owner.s, token: MOCK_TOKEN })).status).toBe(200);
+    const stored = await env.DB.prepare("SELECT value FROM settings WHERE key = 'owner'").first<{ value: string }>();
+    expect(JSON.parse(stored!.value)).toEqual({ memberId: 'member-1', orgIds: [MOCK_ORG_ID] });
+
+    const again = await start('origin=http://site.test&name=Site');
+    expect((await again.post('/connect/session', { s: again.s, token: MOCK_TOKEN })).status).toBe(200);
+
+    const outsider = await start('origin=http://site.test&name=Site');
+    const res = await outsider.post('/connect/session', { s: outsider.s, token: MOCK_TOKEN_OUTSIDER });
+    expect(res.status).toBe(403);
+    expect((await session(outsider.s))!.trello_token_enc).toBeNull();
   });
 
   it('with ALLOWED_TRELLO_ORG, lets members in and limits boards to that workspace', async () => {

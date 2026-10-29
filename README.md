@@ -27,22 +27,11 @@ Tests: `pnpm typecheck`, `pnpm test` (unit), `npx playwright test` (e2e; starts 
 
 ## Deploying
 
-1. **Trello Power-Up** (once): https://trello.com/power-ups/admin → New → generate an API key and secret. Add your Worker URL (e.g. `https://feedback.baliandesign.com`) to the key's allowed origins.
-2. **Cloudflare resources**:
-   ```bash
-   cd packages/worker
-   npx wrangler d1 create annotate            # paste database_id into wrangler.toml
-   npx wrangler r2 bucket create annotate-screenshots
-   ```
-3. **Config** in `wrangler.toml` `[vars]`: set `PUBLIC_URL` to the Worker's public URL and `ALLOWED_TRELLO_ORG` to your Trello workspace id. If you leave it empty, any Trello user can connect a board to your Worker. Leave `TRELLO_MOCK = "0"`.
-4. **Secrets**:
-   ```bash
-   npx wrangler secret put TRELLO_KEY
-   npx wrangler secret put TRELLO_SECRET
-   openssl rand -base64 32 | npx wrangler secret put TOKEN_ENC_KEY
-   openssl rand -base64 32 | npx wrangler secret put SIGNING_SECRET
-   ```
-5. **Ship**: `pnpm build && pnpm --filter @annotate/worker db:migrate:remote && pnpm --filter @annotate/worker deploy`, then attach the custom domain in the Cloudflare dashboard.
+1. **Trello app** (once): https://trello.com/apps/admin → New. Choose **Trello Auth** (not OAuth 2.0) and generate an API key and secret.
+2. **Credentials**: put them in `packages/worker/.prod.vars` (gitignored) as `TRELLO_KEY=` and `TRELLO_SECRET=`.
+3. **Cloudflare resources** (already done for the Balian Design account; ids are in `wrangler.toml`): `wrangler d1 create annotate`, `wrangler r2 bucket create annotate-screenshots`, then `pnpm --filter @annotate/worker db:migrate:remote`.
+4. **Deploy**: `scripts/deploy.sh`. It builds the widget, deploys, sets `PUBLIC_URL` to the live URL, generates `TOKEN_ENC_KEY`/`SIGNING_SECRET` into `.prod.vars`, and uploads all secrets. It's safe to re-run.
+5. **Lock it down**: add the Worker URL to the Trello API key's allowed origins, then do the first Connect right away. The first Trello account to connect becomes the owner, and after that only members of the owner's workspaces can connect. Set `ALLOWED_TRELLO_ORG` to pin access to one specific workspace instead.
 
 ## Using it
 

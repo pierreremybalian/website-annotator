@@ -1,5 +1,6 @@
 name = "annotate"
 main = "src/index.ts"
+account_id = "51f39b9c1946569858d6ff3b2aac2baa" # Pierre@baliandesign.com's Account
 compatibility_date = "2026-08-15"
 compatibility_flags = ["nodejs_compat"]
 
@@ -10,7 +11,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "annotate"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "067a43d8-ea02-47f1-87e7-8f16efb965d5"
 migrations_dir = "migrations"
 
 [[r2_buckets]]

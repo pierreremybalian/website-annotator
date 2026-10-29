@@ -11,6 +11,7 @@ export default defineConfig(async () => {
           bindings: {
             TEST_MIGRATIONS: migrations,
             TRELLO_MOCK: '1',
+            PUBLIC_URL: 'http://localhost:8787',
             TRELLO_KEY: 'mock-key',
             TRELLO_SECRET: 'mock-secret',
             TOKEN_ENC_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',

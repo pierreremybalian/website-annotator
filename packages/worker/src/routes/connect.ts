@@ -18,6 +18,7 @@ import { decryptToken, encryptToken, safeEqual, trelloForProject } from '../cryp
 import { BoardsPage, CallbackPage, StartPage } from '../connect/pages';
 import { ConnectError, sendError, sendPage } from '../connect/render';
 import { cleanLabel, defaultLists, hostOf, parseHttpUrl, parseOrigin, publicBase, webhookCallbackUrl } from '../connect/util';
+import { mayConnect } from '../owner';
 
 type Ctx = Context<AppEnv>;
 
@@ -148,11 +149,10 @@ app.post('/session', async (c) => {
     if (e instanceof TrelloError && (e.status === 400 || e.status === 401)) throw rejected;
     throw e;
   }
-  const org = allowedOrg(c.env);
-  if (org && !(member.idOrganizations ?? []).includes(org)) {
+  if (!(await mayConnect(c.env, member))) {
     throw new ConnectError(
       403,
-      'This Trello account isn’t in the allowed workspace. Log in with the account you use for work, or ask an admin to add you to the workspace.',
+      'This Trello account isn’t part of the workspace Annotate is set up for. Log in with your work account, or ask the owner to add you to their Trello workspace.',
       'forbidden',
       'This account can’t connect',
     );

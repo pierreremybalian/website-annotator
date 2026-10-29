@@ -163,6 +163,8 @@ class HttpTrello implements Trello {
 
 export const MOCK_TOKEN = 'mock-token';
 export const MOCK_ORG_ID = 'mock-org';
+/** A second valid login: a member outside MOCK_ORG_ID, for access-control tests. */
+export const MOCK_TOKEN_OUTSIDER = 'mock-token-outsider';
 
 interface MockState {
   boards: Map<string, TrelloBoard>;
@@ -202,7 +204,7 @@ class MockTrello implements Trello {
   constructor(private token: string) {}
 
   private auth() {
-    if (this.token !== MOCK_TOKEN) throw new TrelloError(401, 'invalid token');
+    if (this.token !== MOCK_TOKEN && this.token !== MOCK_TOKEN_OUTSIDER) throw new TrelloError(401, 'invalid token');
   }
   private id(prefix: string) {
     return `${prefix}-${++mock.seq}-${Math.random().toString(36).slice(2, 8)}`;
@@ -210,6 +212,7 @@ class MockTrello implements Trello {
 
   async me() {
     this.auth();
+    if (this.token === MOCK_TOKEN_OUTSIDER) return { id: 'member-2', username: 'outsider', fullName: 'Out Sider', idOrganizations: ['outsider-org'] };
     return { id: 'member-1', username: 'mockuser', fullName: 'Mock User', idOrganizations: [MOCK_ORG_ID] };
   }
   async boards() {
