@@ -26,8 +26,12 @@ Issues come from the Annotate widget on the live site. The `annotate` CLI lists 
    - Run the build, lint and tests that cover the change.
    - If you can render the page (dev server, Playwright, a screenshot), check it at the reported viewport width.
    - If you can't verify visually, say so in the resolve note.
-7. **Commit.** Commit only this fix, e.g. `Fix hero CTA overlapping the menu on mobile (annotate #12)`.
-8. **Resolve.** Run `annotate resolve <n> --note "<what changed, in plain words for the client>" --commit auto`. The issue moves to "Ready for review", and a human confirms it on the site.
+7. **Commit.** Commit only this fix, e.g. `Fix hero CTA overlapping the menu on mobile (annotate #12)`. If the fix needs database content changed (page text, block fields, options), follow the repo's way of shipping content. On the agency's WordPress sites, that means a file in `deploy/migrations/`.
+8. **Ship.** The reporter checks the site in `pageUrl`, so the fix has to be live there before you resolve.
+   - Read the repo's deploy instructions (CLAUDE.md, README). Usually pushing to the deploy branch is the deploy: push, then watch the CI run until it finishes (`gh run watch <id> --exit-status`). If it fails, read `gh run view <id> --log-failed` and fix it, or report it.
+   - Never deploy over SSH or edit servers. If the repo has no push-to-deploy path, stop and tell the user what's needed. Don't hand them server commands to run on your behalf.
+   - Then load `pageUrl` (cache-busted) and confirm the fix is there.
+9. **Resolve.** Run `annotate resolve <n> --note "<what changed, in plain words for the client>" --commit auto`. The issue moves to "Ready for review", and a human confirms it on the site. If the fix is committed but can't be live yet, don't resolve: `annotate comment` the commit and the blocker, then `annotate release`.
 
 Then go back to step 1 for the next issue.
 
