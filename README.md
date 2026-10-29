@@ -64,7 +64,7 @@ npx playwright test                           # e2e; starts both dev servers its
 1. **Trello app** (once): at https://trello.com/apps/admin, click **New**, choose **Trello Auth** (not OAuth 2.0), and generate an API key and secret.
 2. **Credentials**: put them in `packages/worker/.prod.vars` (gitignored) as `TRELLO_KEY=` and `TRELLO_SECRET=`.
 3. **Cloudflare resources** (already done for this account; ids are in `wrangler.toml`): `wrangler d1 create annotate`, `wrangler r2 bucket create annotate-screenshots`, then `pnpm --filter @annotate/worker db:migrate:remote`.
-4. **Deploy**: `scripts/deploy.sh` builds the widget, deploys, sets `PUBLIC_URL`, generates the Worker's own secrets into `.prod.vars`, and uploads all secrets. It's safe to re-run. Apply new migrations first with `db:migrate:remote`.
+4. **Deploy**: `scripts/deploy.sh` applies pending D1 migrations, builds the widget, deploys, sets `PUBLIC_URL`, generates the Worker's own secrets into `.prod.vars`, and uploads all secrets. It's safe to re-run.
 5. **Lock it down**: add the Worker URL to the Trello API key's allowed origins, then do the first Connect right away. The first Trello account to connect becomes the owner, and after that only members of the owner's workspaces can connect.
 
 Live Worker: https://annotate.pierre-51f.workers.dev

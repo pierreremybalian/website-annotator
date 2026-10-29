@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
-# Production deploy: build the widget, deploy the Worker, point PUBLIC_URL at it, upload secrets.
-# Reads Trello credentials from packages/worker/.prod.vars (gitignored); generates the Worker's
-# own secrets there on first run. Safe to re-run.
+# Production deploy: apply D1 migrations, build the widget, deploy the Worker, point PUBLIC_URL at it,
+# upload secrets. Reads Trello credentials from packages/worker/.prod.vars (gitignored); generates the
+# Worker's own secrets there on first run. Safe to re-run.
 set -euo pipefail
 cd "$(dirname "$0")/../packages/worker"
 VARS=.prod.vars
 [ -f "$VARS" ] || { echo "Missing packages/worker/$VARS"; exit 1; }
+
+# Some wrangler commands (d1 migrations) ignore account_id in wrangler.toml when the login can see
+# several accounts, so pass it explicitly.
+CLOUDFLARE_ACCOUNT_ID=$(sed -nE 's/^account_id = "([0-9a-f]+)".*/\1/p' wrangler.toml)
+[ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "No account_id in wrangler.toml"; exit 1; }
+export CLOUDFLARE_ACCOUNT_ID
+
+# Migrations are additive, so they go first: the running Worker keeps working against the new schema.
+npx wrangler d1 migrations apply annotate --remote
 
 grep -qE '^TOKEN_ENC_KEY=.+' "$VARS" || echo "TOKEN_ENC_KEY=$(openssl rand -base64 32)" >> "$VARS"
 grep -qE '^SIGNING_SECRET=.+' "$VARS" || echo "SIGNING_SECRET=$(openssl rand -base64 32)" >> "$VARS"
