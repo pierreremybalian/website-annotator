@@ -24,7 +24,7 @@ define( 'ANNOTATE_STATUS_TRANSIENT', 'annotate_status' );
 
 // Can be overridden in wp-config.php, e.g. 'http://localhost:8787' for local development.
 if ( ! defined( 'ANNOTATE_DEFAULT_ENDPOINT' ) ) {
-	define( 'ANNOTATE_DEFAULT_ENDPOINT', 'https://feedback.baliandesign.com' );
+	define( 'ANNOTATE_DEFAULT_ENDPOINT', 'https://annotate.pierre-51f.workers.dev' );
 }
 
 require_once ANNOTATE_DIR . 'includes/functions.php';
