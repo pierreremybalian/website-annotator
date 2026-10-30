@@ -158,10 +158,12 @@ export function App(props: AppProps) {
       let rect: Rect;
       let padding = 0;
       let label: string;
+      let reference: Element | null = null;
       if (picked.mode === 'element') {
         const el = picked.element;
         rect = rectOf(el);
         padding = ELEMENT_CROP_PADDING;
+        reference = el;
         label = describeElement(el);
         try {
           anchor = createElementAnchor(el);
@@ -185,9 +187,10 @@ export function App(props: AppProps) {
           anchorEl = null;
         }
         context = captureContext(anchorEl);
+        if (anchorEl !== document.body && anchorEl !== document.documentElement) reference = anchorEl;
       }
       const env = buildEnv();
-      const shots = await captureScreenshots(rect, host, { padding });
+      const shots = await captureScreenshots(rect, host, { padding, reference });
       const previewUrl = shots.ok ? URL.createObjectURL(shots.selection) : null;
       setCaptured({ shots, previewUrl, anchor, env, context, label });
       setMode('form');

@@ -1,5 +1,6 @@
 import { snapdom } from '@zumer/snapdom';
 import type { Rect } from '@annotate/shared';
+import { findOffset, type Offset, type Pixels } from './drift';
 
 export interface Screenshots {
   /** image/png, the selected rect at devicePixelRatio (capped at 2). */
@@ -91,11 +92,17 @@ function pageBackground(): string {
  * `.cta-band { margin-bottom: 5rem }` beat the baked `mb-0` (its !important is lost), pushing
  * everything below it 80px down, so a footer selection cropped the area above it.
  */
+function excluder(host: HTMLElement) {
+  return (el: Element) => el === host || el.localName === 'annotate-widget' || el.localName === 'style';
+}
+
 async function renderViewport(host: HTMLElement, dpr: number) {
   const vw = document.documentElement.clientWidth || window.innerWidth;
   const vh = document.documentElement.clientHeight || window.innerHeight;
-  const sx = window.scrollX;
-  const sy = window.scrollY;
+  // snapdom works in the root element's own coordinates, which are the document's only when
+  // <html> sits at its origin. WordPress's admin bar gives it margin-top: 32px, so the viewport
+  // is located from the root's box, not from scrollX/scrollY.
+  const root = document.documentElement.getBoundingClientRect();
 
   const result = await withTimeout(
     snapdom(document.documentElement, {
@@ -103,7 +110,7 @@ async function renderViewport(host: HTMLElement, dpr: number) {
       dpr,
       scale: 1,
       backgroundColor: pageBackground(),
-      exclude: [(el: Element) => el === host || el.localName === 'annotate-widget' || el.localName === 'style'],
+      exclude: [excluder(host)],
       excludeMode: 'remove',
       embedFonts: 'auto',
     }),
@@ -111,14 +118,65 @@ async function renderViewport(host: HTMLElement, dpr: number) {
   );
   const { contentX, contentY, clip } = result.meta;
   const crop = {
-    x: contentX + (sx - (clip ? clip.x : 0)),
-    y: contentY + (sy - (clip ? clip.y : 0)),
+    x: contentX + (-root.left - (clip ? clip.x : 0)),
+    y: contentY + (-root.top - (clip ? clip.y : 0)),
     width: vw,
     height: vh,
   };
   const canvas = await withTimeout(result.toCanvas({ dpr, scale: 1, crop }), TIMEOUT_MS);
   const warnings = Array.from(new Set(result.warnings.map((w) => w.code)));
   return { canvas, vw, vh, warnings };
+}
+
+function pixelsOf(canvas: HTMLCanvasElement, width = canvas.width, height = canvas.height): Pixels {
+  const c = document.createElement('canvas');
+  c.width = width;
+  c.height = height;
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(canvas, 0, 0, width, height);
+  return ctx.getImageData(0, 0, width, height);
+}
+
+/**
+ * The reference element rendered on its own, transparent around it. Rasterized at the page
+ * render's dpr and scaled down to 1 CSS px per pixel the same way, so text antialiases alike.
+ */
+async function renderProbe(el: Element, host: HTMLElement, dpr: number): Promise<Pixels> {
+  const result = await withTimeout(
+    snapdom(el, { dpr, scale: 1, exclude: [excluder(host)], excludeMode: 'remove', embedFonts: 'auto' }),
+    TIMEOUT_MS,
+  );
+  const { contentX, contentY, w0, h0 } = result.meta;
+  const crop = { x: contentX, y: contentY, width: w0, height: h0 };
+  const canvas = await withTimeout(result.toCanvas({ dpr, scale: 1, crop }), TIMEOUT_MS);
+  return pixelsOf(canvas, Math.max(1, Math.round(w0)), Math.max(1, Math.round(h0)));
+}
+
+/**
+ * How far the page render drew `reference` from where the live page has it (see drift.ts).
+ * Null when there's nothing to measure or it can't be found; the crop then stays as is.
+ */
+async function measureDrift(
+  reference: Element,
+  origin: Rect,
+  host: HTMLElement,
+  dpr: number,
+  view: { canvas: HTMLCanvasElement; vw: number; vh: number },
+): Promise<Offset | null> {
+  // A huge reference (an area whose anchor is most of the page) costs a second full render for nothing.
+  if (origin.width * origin.height > view.vw * view.vh * 2) return null;
+  try {
+    const probe = await renderProbe(reference, host, dpr);
+    // Scale by the same factor both ways: the render can come back shorter than the viewport.
+    const k = view.canvas.width / view.vw;
+    return findOffset(pixelsOf(view.canvas, view.vw, Math.max(1, Math.round(view.canvas.height / k))), probe, origin);
+  } catch {
+    return null;
+  }
+}
+
+function rectFrom(r: DOMRect): Rect {
+  return { x: r.left, y: r.top, width: r.width, height: r.height };
 }
 
 /** Clamp the selection to the viewport, in CSS px. */
@@ -167,6 +225,11 @@ function drawContext(src: HTMLCanvasElement, r: Rect, vw: number): Promise<Blob>
 export interface CaptureOptions {
   /** CSS px added around `rect` for the selection crop (clamped to the viewport). Default 0. */
   padding?: number;
+  /**
+   * An element at the selection (the picked element, or an area's anchor). It is located in the
+   * page render and the crop is moved by however far the render drew it from the live page.
+   */
+  reference?: Element | null;
 }
 
 /**
@@ -178,15 +241,20 @@ export interface CaptureOptions {
  */
 export async function captureScreenshots(rect: Rect, host: HTMLElement, opts: CaptureOptions = {}): Promise<Screenshots> {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const reference = opts.reference && opts.reference.isConnected ? opts.reference : null;
+  const origin = reference ? rectFrom(reference.getBoundingClientRect()) : null;
   const restore = hideHost(host);
   let rendered: Awaited<ReturnType<typeof renderViewport>>;
+  let drift: Offset | null = null;
   try {
     rendered = await renderViewport(host, dpr);
+    if (reference && origin) drift = await measureDrift(reference, origin, host, dpr, rendered);
   } catch (err) {
     restore();
     return placeholderScreenshots(err instanceof Error ? err.message : String(err));
   }
   restore();
+  if (drift) rect = { ...rect, x: rect.x + drift.dx, y: rect.y + drift.dy };
 
   try {
     const { canvas, vw, vh, warnings } = rendered;

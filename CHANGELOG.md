@@ -9,6 +9,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 - Screenshots no longer drift from the selection on pages with inline `<style>` blocks. The page's own CSS re-applied on top of the captured styles, so on a WordPress site a footer selection showed the area above it.
+- Screenshots taken while logged in to WordPress were 32px off. The crop assumed `<html>` starts at the top of the page, and the admin bar gives it a 32px margin. The viewport is now located from the root element's box.
+- The selection crop now corrects itself for any remaining layout drift in the page render: the selected element (or an area's anchor) is rendered on its own, found in the page render near where it should be, and the crop and outline move by the offset found.
 
 ## [0.2.0] - 2026-10-29
 
