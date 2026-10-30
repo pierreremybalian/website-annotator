@@ -2,6 +2,11 @@
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- Screenshots no longer drift from the selection on pages with inline `<style>` blocks. The page's own CSS re-applied on top of the captured styles, so on a WordPress site a footer selection showed the area above it.
+
 ## [0.2.0] - 2026-10-29
 
 Element picking, an agentic QA loop, and Astro support.

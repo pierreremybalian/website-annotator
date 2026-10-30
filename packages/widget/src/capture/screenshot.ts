@@ -84,6 +84,12 @@ function pageBackground(): string {
  * whole document instead paints a fixed header at the document top, so it would vanish
  * from a scrolled crop). The capture is then cropped from its viewBox to the exact
  * viewport using the clip window snapdom reports in result.meta.
+ *
+ * The page's own <style> elements are left out of the clone: snapdom bakes each element's
+ * computed style into a class of its own, and the page's rules would otherwise re-apply on
+ * top and win wherever they come later at equal specificity. A WordPress block's inline
+ * `.cta-band { margin-bottom: 5rem }` beat the baked `mb-0` (its !important is lost), pushing
+ * everything below it 80px down, so a footer selection cropped the area above it.
  */
 async function renderViewport(host: HTMLElement, dpr: number) {
   const vw = document.documentElement.clientWidth || window.innerWidth;
@@ -97,7 +103,7 @@ async function renderViewport(host: HTMLElement, dpr: number) {
       dpr,
       scale: 1,
       backgroundColor: pageBackground(),
-      exclude: [(el: Element) => el === host || el.localName === 'annotate-widget'],
+      exclude: [(el: Element) => el === host || el.localName === 'annotate-widget' || el.localName === 'style'],
       excludeMode: 'remove',
       embedFonts: 'auto',
     }),
