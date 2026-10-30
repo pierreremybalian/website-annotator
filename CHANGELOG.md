@@ -4,6 +4,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- **`annotate watch`**: works a site's issues unattended. Each round it updates the checkout and picks the oldest open issue nobody has claimed. It runs a headless Claude Code session (`claude -p`) on the machine's Claude login, never an API key, with a tool allowlist and no web access. An issue the agent handed back waits for a person. Idle rounds use no Claude.
+- **QA agent server** (`scripts/qa-agent/`): `curl … | sudo bash` installs Claude Code, the CLI and a hardened `annotate-watch@<site>` systemd service on Ubuntu. `annotate-agent login / add / logs` manage it, with one deploy key per site. The Worker serves the CLI at `/dl/annotate.mjs`.
+
 ### Changed
 - **Agents close what they've verified.** `annotate claim` moves a new issue to "In progress" (an existing list like Doing, or a new one after the new list), and `annotate release` moves it back. `annotate resolve` now moves the card to Done (`resolved`) instead of "Ready for review", so the agent resolves only once the fix is live and checked on the page. Anyone can reopen from Trello. The review list and the pin's Looks good / Still broken stay for cards people move there.
 

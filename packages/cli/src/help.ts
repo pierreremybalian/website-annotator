@@ -29,6 +29,9 @@ Issues (addressed by number: 12 or "#12")
   origins [list|add|remove] [<origin>]
                                    Sites allowed to load the widget
 
+Automation
+  watch [--once] [--reset]         Run Claude Code on new issues as they arrive (subscription login)
+
 Global options
   --json              Raw JSON on stdout and nothing else: the stable contract for scripts and agents
   --endpoint <url>    Worker URL. Precedence: --endpoint, ANNOTATE_ENDPOINT, .annotate.json,
@@ -159,6 +162,30 @@ resolve once the fix is live on the reported page and you've checked it there. A
   --json            {"issue": AgentIssueDetail}
 
 ${EXIT_CODES_LINE}`,
+
+  watch: `Usage: annotate watch [--once] [--dry-run] [--reset] [--interval <s>] [--timeout <min>]
+
+Work this checkout's issues unattended. Every interval: update the checkout, list open issues, and
+for the oldest one nobody has claimed, run a headless Claude Code session (\`claude -p\`) that follows
+the annotate-qa skill: claim → fix → push → check the live page → resolve. One issue per session.
+
+Claude runs on this machine's Claude login (\`claude\` once, or CLAUDE_CODE_OAUTH_TOKEN from
+\`claude setup-token\`). ANTHROPIC_API_KEY is removed from its environment, so it never bills the API.
+Idle rounds make one request to the Worker and use no Claude.
+
+The agent may use file tools and these commands only: git, annotate, gh run, curl, npm, npx, pnpm,
+yarn, node, php, composer, python3 and read-only shell tools. No web fetch or search. An issue is
+skipped once an agent has handed it back (commented and released) until a person comments again,
+and after 2 runs that ended without a hand-back. Attempts are kept in ~/.annotate/watch-state.json.
+
+  --once            One round, then exit
+  --dry-run         Show the command and prompt for the next issue without running anything
+  --reset           For a dedicated clone: hard-reset to the upstream branch each round
+                    (default: git pull --ff-only, and skip the round if that fails)
+  --interval <s>    Seconds between rounds, 15-86400 (default 120)
+  --timeout <min>   Stop a session after this long, 1-600 (default 60)
+
+Run it as a service: see scripts/qa-agent/ in the Annotate repo (systemd on Ubuntu). ${EXIT_CODES_LINE}`,
 
   reopen: `Usage: annotate reopen <n> --note "<why>" [--as <name>] [--json]
 

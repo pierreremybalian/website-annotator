@@ -3,6 +3,8 @@ dist/
 .wrangler/
 .dev.vars
 packages/worker/public/widget.js
+packages/worker/public/dl/
+packages/worker/public/qa-agent/
 test-results/
 playwright-report/
 .DS_Store

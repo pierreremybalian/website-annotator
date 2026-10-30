@@ -24,6 +24,19 @@ export interface Ctx {
   hostname: string;
   /** Hand-off poll interval. */
   pollIntervalMs: number;
+  /** Run a child process (`annotate watch`'s agent) with `input` on stdin and its output passed through. */
+  runAgent: (cmd: string, args: string[], opts: RunAgentOptions) => Promise<RunAgentResult>;
+}
+
+export interface RunAgentOptions {
+  cwd: string;
+  env: Record<string, string>;
+  input: string;
+  timeoutMs: number;
+}
+export interface RunAgentResult {
+  code: number | null;
+  timedOut: boolean;
 }
 
 declare const __ANNOTATE_VERSION__: string | undefined;
@@ -54,6 +67,31 @@ export function openInBrowser(url: string): boolean {
   }
 }
 
+/** Starts the process with inherited stdout/stderr; on timeout sends SIGTERM, then SIGKILL 10 s later. */
+export function runChild(cmd: string, args: string[], opts: RunAgentOptions): Promise<RunAgentResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'inherit', 'inherit'] });
+    let timedOut = false;
+    let killer: NodeJS.Timeout | undefined;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      killer = setTimeout(() => child.kill('SIGKILL'), 10_000);
+    }, opts.timeoutMs);
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(new Error(`couldn't start ${cmd}: ${err.message}`));
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (killer) clearTimeout(killer);
+      resolve({ code, timedOut });
+    });
+    child.stdin.on('error', () => {});
+    child.stdin.end(opts.input);
+  });
+}
+
 export function makeCtx(overrides: Partial<Ctx> = {}): Ctx {
   const hostname = overrides.hostname ?? os.hostname();
   return {
@@ -69,6 +107,7 @@ export function makeCtx(overrides: Partial<Ctx> = {}): Ctx {
     agentName: `${username()}@${hostname}`,
     hostname,
     pollIntervalMs: 2000,
+    runAgent: runChild,
     ...overrides,
   };
 }

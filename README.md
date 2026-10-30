@@ -35,6 +35,7 @@ Agents only resolve after the fix is live and checked on the reported page. Anyo
 - **WordPress**: install the plugin zip (`scripts/package-plugin.sh`), then go to Settings → Annotate → **Connect Trello**.
 - **Astro or any other site**: run `annotate connect` in the site's repo. It opens the same Trello popup, writes `.annotate.json`, and prints the `<script>` tag or the `@annotate/astro` config.
 - **Coding agents**: in the site's repo, run `annotate init` (link an existing project) and `annotate skill install`. Then ask Claude Code to "fix the open QA issues".
+- **Hands-off**: a [QA agent server](scripts/qa-agent/README.md) (Ubuntu, systemd) runs `annotate watch` for each site and fixes new issues on your Claude subscription.
 
 Who sees the widget: logged-in users with the chosen role (WordPress), staging builds in always-on mode (Astro), and anyone who opened the site's activation link (`?annotate=<key>`). Regular visitors download nothing.
 

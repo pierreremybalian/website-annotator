@@ -23,6 +23,7 @@ import { renderHandoff, runHandoff } from './handoff';
 import { emptyIssuesMessage, renderIssueDetail, renderIssueTable, renderProject } from './render';
 import { installSkill, SKILL, skillTarget } from './skill';
 import { SourceResolver } from './sources';
+import { watch } from './watch';
 
 export type OptionSpec = NonNullable<ParseArgsConfig['options']>;
 
@@ -398,6 +399,33 @@ export const COMMANDS: Command[] = [
       if (inv.json) return inv.printJson({ path: target, status });
       const verb = status === 'created' ? 'Installed' : status === 'updated' ? 'Updated' : 'Already up to date:';
       inv.print([`${verb} ${target}`, inv.style.dim('Claude Code picks it up for "fix the QA issues" and similar requests.')]);
+    },
+  },
+  {
+    name: 'watch',
+    options: {
+      once: { type: 'boolean' },
+      'dry-run': { type: 'boolean' },
+      reset: { type: 'boolean' },
+      interval: { type: 'string' },
+      timeout: { type: 'string' },
+    },
+    maxPositionals: 0,
+    async run(inv) {
+      const num = (key: string, def: number, min: number, max: number) => {
+        const raw = str(inv, key);
+        if (raw === undefined) return def;
+        const n = /^\d+$/.test(raw.trim()) ? Number(raw) : NaN;
+        if (!(n >= min && n <= max)) throw new UsageError(`--${key} must be a whole number from ${min} to ${max}`, inv.command);
+        return n;
+      };
+      return watch(inv.ctx, inv.endpointFlag, {
+        once: inv.values.once === true,
+        dryRun: inv.values['dry-run'] === true,
+        reset: inv.values.reset === true,
+        intervalSec: num('interval', 120, 15, 86_400),
+        timeoutMin: num('timeout', 60, 1, 600),
+      });
     },
   },
 ];

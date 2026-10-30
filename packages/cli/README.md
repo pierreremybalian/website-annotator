@@ -49,6 +49,7 @@ The CLI never sees a Trello token. The hand-off works like a device login:
 | `reopen <n> --note "…"` | Moves the issue back to new |
 | `origins [list] \| add <origin> \| remove <origin>` | Sets the sites allowed to load the widget |
 | `skill install [--global] \| skill print` | Installs or prints the Claude Code skill |
+| `watch [--once] [--reset] [--dry-run]` | Works new issues unattended: runs headless Claude Code (`claude -p`, subscription login, never an API key) on the oldest unclaimed one. Run it as a service with [`scripts/qa-agent`](../../scripts/qa-agent/README.md) |
 
 Issues are addressed by their number (`12` or `"#12"`). `claim` moves a new issue to **In progress** on Trello and the pin, and `release` puts it back. `resolve` moves it to **Done**. Anyone can reopen it from Trello.
 

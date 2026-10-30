@@ -29,6 +29,11 @@ set -a; . "./$VARS"; set +a
 : "${TRELLO_SECRET:?TRELLO_SECRET is empty in $VARS}"
 
 pnpm --filter @annotate/widget build
+# The CLI and the QA agent installer are served from the Worker too (curl … | sudo bash on a server).
+pnpm --filter @annotate/cli build >/dev/null
+mkdir -p public/dl public/qa-agent
+cp ../cli/dist/annotate.mjs public/dl/annotate.mjs
+cp ../../scripts/qa-agent/install.sh ../../scripts/qa-agent/annotate-agent ../../scripts/qa-agent/annotate-watch@.service public/qa-agent/
 
 out=$(npx wrangler deploy 2>&1) || { echo "$out"; exit 1; }
 url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' <<<"$out" | head -1)

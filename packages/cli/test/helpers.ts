@@ -74,6 +74,9 @@ export async function runCli(argv: string[], ctx: Partial<Ctx> = {}): Promise<Ru
     now: () => NOW,
     sleep: async () => {},
     pollIntervalMs: 0,
+    runAgent: async () => {
+      throw new Error('unexpected agent run');
+    },
     openUrl: () => true,
     fetch: mockFetch(() => ({ status: 500, body: { error: 'unexpected request', code: 'internal' } })),
     ...ctx,

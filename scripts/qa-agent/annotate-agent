@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# Manage Annotate's QA agent on this server (installed by install.sh). Run with sudo.
+set -euo pipefail
+BASE=${ANNOTATE_BASE:-https://annotate.pierre-51f.workers.dev}
+AGENT_USER=annotate
+home=$(getent passwd "$AGENT_USER" | cut -d: -f6)
+env_file="$home/.config/annotate/agent.env"
+
+usage() {
+  cat <<USAGE
+Usage: sudo annotate-agent <command>
+
+  login                    Store your Claude login (a token from \`claude setup-token\`)
+  add <name> <git-url>     Clone a site's repo, link it to its Annotate project, start its agent
+  list                     Agents and their state
+  logs <name>              Follow an agent's log
+  run <name>               Run one round now, in the foreground
+  remove <name>            Stop an agent (its checkout is kept)
+  update                   Update Claude Code and the annotate CLI
+USAGE
+}
+
+[ "$(id -u)" = 0 ] || { echo "Run with sudo."; exit 1; }
+[ -n "$home" ] || { echo "No '$AGENT_USER' user. Run install.sh first."; exit 1; }
+as_agent() { runuser -u "$AGENT_USER" -- env HOME="$home" "$@"; }
+# Like as_agent, with the Claude token loaded (what the service sees).
+as_service() { runuser -u "$AGENT_USER" -- env HOME="$home" bash -c 'set -a; . "$0"; set +a; exec "$@"' "$env_file" "$@"; }
+site_name() {
+  [[ ${1:-} =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "Site name: lowercase letters, digits and dashes (e.g. strausshouses)."; exit 2; }
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  login)
+    echo "On any computer with Claude Code, run:  claude setup-token"
+    echo "It signs in to your Claude account in the browser and prints a token (sk-ant-oat01-…)."
+    read -rsp "Paste the token: " token </dev/tty
+    echo
+    [[ $token == sk-ant-* ]] || { echo "That doesn't look like a Claude token."; exit 1; }
+    { grep -v '^CLAUDE_CODE_OAUTH_TOKEN=' "$env_file" || true; echo "CLAUDE_CODE_OAUTH_TOKEN=$token"; } > "$env_file.tmp"
+    install -m 600 -o "$AGENT_USER" -g "$AGENT_USER" "$env_file.tmp" "$env_file"
+    rm -f "$env_file.tmp"
+    echo "Checking it works…"
+    reply=$(cd "$home" && echo 'Reply with just: OK' | as_service claude -p 2>&1 || true)
+    if [[ $reply == *OK* ]]; then echo "Claude login works."; else echo "Claude didn't answer as expected:"; echo "$reply"; exit 1; fi
+    systemctl try-restart 'annotate-watch@*' 2>/dev/null || true
+    echo "Next: sudo annotate-agent add <name> <git ssh url>"
+    ;;
+
+  add)
+    name=${1:-}
+    url=${2:-}
+    site_name "$name"
+    [ -n "$url" ] || { echo "Usage: sudo annotate-agent add <name> <git-url>   e.g. git@github.com:me/site.git"; exit 2; }
+    grep -q '^CLAUDE_CODE_OAUTH_TOKEN=.' "$env_file" || { echo "Run sudo annotate-agent login first."; exit 1; }
+    dir="$home/sites/$name"
+    key="$home/.ssh/$name"
+    ssh_cmd="ssh -i $key -o IdentitiesOnly=yes"
+    # One deploy key per repo: GitHub won't attach the same key to two repos, and each key can write to one site only.
+    [ -f "$key" ] || as_agent ssh-keygen -q -t ed25519 -N '' -C "annotate-qa@$(hostname) $name" -f "$key"
+    if [ ! -d "$dir/.git" ]; then
+      slug=""
+      case "$url" in git@github.com:* | https://github.com/*) slug=${url#git@github.com:}; slug=${slug#https://github.com/}; slug=${slug%.git} ;; esac
+      echo
+      echo "Give this server write access to the repo with this deploy key:"
+      echo
+      cat "$key.pub"
+      echo
+      if [ -n "$slug" ]; then echo "  https://github.com/$slug/settings/keys/new  (paste it, tick \"Allow write access\")"; fi
+      until as_agent env GIT_SSH_COMMAND="$ssh_cmd" git ls-remote -q "$url" >/dev/null 2>&1; do
+        read -rp "Press Enter once the key is added… " _ </dev/tty
+      done
+      as_agent env GIT_SSH_COMMAND="$ssh_cmd" git clone -q "$url" "$dir"
+    fi
+    as_agent git -C "$dir" config core.sshCommand "$ssh_cmd"
+    # Never committed, and kept by the agent's `git clean` between rounds.
+    for p in .annotate.json .annotate/; do
+      grep -qxF "$p" "$dir/.git/info/exclude" 2>/dev/null || echo "$p" >> "$dir/.git/info/exclude"
+    done
+    if [ ! -f "$dir/.annotate.json" ]; then
+      echo
+      echo "Link it to the site's Annotate project: open the link below and pick the project (e.g. the staging site)."
+      (cd "$dir" && as_agent annotate init --no-open)
+    fi
+    systemctl enable --now "annotate-watch@$name" >/dev/null 2>&1
+    echo
+    echo "The agent for $name is running. It checks for new issues every 2 minutes."
+    echo "Logs: sudo annotate-agent logs $name"
+    ;;
+
+  list)
+    systemctl list-units --all --no-pager --plain 'annotate-watch@*'
+    ;;
+
+  logs)
+    site_name "${1:-}"
+    exec journalctl -u "annotate-watch@$1" -n 100 -f
+    ;;
+
+  run)
+    site_name "${1:-}"
+    cd "$home/sites/$1"
+    as_service annotate watch --once --reset
+    ;;
+
+  remove)
+    site_name "${1:-}"
+    systemctl disable --now "annotate-watch@$1"
+    echo "Stopped. The checkout is still in $home/sites/$1."
+    ;;
+
+  update)
+    curl -fsSL "$BASE/qa-agent/install.sh" | bash
+    ;;
+
+  *)
+    usage
+    [ -z "$cmd" ] || exit 2
+    ;;
+esac

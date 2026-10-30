@@ -1,0 +1,41 @@
+# One QA agent per site checkout: /home/annotate/sites/<name>. Managed with `sudo annotate-agent`.
+[Unit]
+Description=Annotate QA agent for %i
+Documentation=https://github.com/pierreremybalian/website-annotator/tree/main/scripts/qa-agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=annotate
+Group=annotate
+WorkingDirectory=/home/annotate/sites/%i
+# CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`), written by `annotate-agent login`.
+EnvironmentFile=-/home/annotate/.config/annotate/agent.env
+Environment=DISABLE_AUTOUPDATER=1
+ExecStart=/usr/local/bin/annotate watch --reset
+Restart=always
+RestartSec=60
+
+# The agent acts on text from the people who report issues. Keep it to its own home: no other users'
+# homes, no web roots, no root.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=tmpfs
+BindPaths=/home/annotate
+InaccessiblePaths=-/var/www -/srv -/root -/etc/mysql
+CapabilityBoundingSet=
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
