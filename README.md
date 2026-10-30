@@ -1,6 +1,6 @@
 # Annotate
 
-Self-hosted website feedback for QA that coding agents can work on. Clients click an element on the site and leave a note. A Trello card appears with screenshots and enough context for a coding agent to find the source file. The agent fixes it through the `annotate` CLI, and the client confirms on the page.
+Self-hosted website feedback for QA that coding agents can work on. Clients click an element on the site and leave a note. A Trello card appears with screenshots and enough context for a coding agent to find the source file. The agent fixes it through the `annotate` CLI, ships it, checks it on the live page and closes it.
 
 Works on any site. There are adapters for **WordPress** and **Astro**.
 
@@ -24,12 +24,11 @@ Package docs: [widget](packages/widget/README.md) · [worker](packages/worker/RE
 ```
 client clicks an element ──▶ Worker ──▶ Trello card (humans)
                                ▲ │
-   annotate issues/show/claim  │ ▼  agent fixes the code
-   annotate resolve ───────────┘    → "Ready for review" list, pin shows "Marked as fixed"
-client on the pin:  Looks good ✓ → Done      Still broken → New (with a note)
+   annotate issues/show/claim  │ ▼  claim → "In progress"; agent fixes, deploys, checks the live page
+   annotate resolve ───────────┘    → "Done", pin leaves the page
 ```
 
-Agents can't close issues. A human always confirms on the page.
+Agents only resolve after the fix is live and checked on the reported page. Anyone can reopen an issue from Trello. A card a person moves to "Ready for review" gets **Looks good ✓ / Still broken** on its pin.
 
 ## Setup
 

@@ -218,7 +218,7 @@ describe('claim / release / comment / resolve / reopen', () => {
     expect(fetch.calls[2]?.body).toEqual({ note: 'Still overlapping on iPad', author: 'tester@box' });
   });
 
-  it('resolve --commit auto uses git rev-parse --short HEAD and says it is ready for review', async () => {
+  it('resolve --commit auto uses git rev-parse --short HEAD and says it is done', async () => {
     const cwd = configuredDir();
     const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
     git('init', '-q');
@@ -226,19 +226,19 @@ describe('claim / release / comment / resolve / reopen', () => {
     git('add', '.');
     git('commit', '-q', '-m', 'Fix hero CTA (annotate #12)');
     const sha = git('rev-parse', '--short', 'HEAD');
-    const fetch = api({ 'POST /issues/12/resolve': () => ({ status: 200, body: { issue: issueFixture({ status: 'review' }) } }) });
+    const fetch = api({ 'POST /issues/12/resolve': () => ({ status: 200, body: { issue: issueFixture({ status: 'resolved' }) } }) });
     const r = await runCli(['resolve', '12', '--note', 'Moved the CTA below the menu under 400px', '--commit', 'auto'], { cwd, fetch });
     expect(r.code).toBe(0);
     expect(r.stderr).toBe('');
     expect(fetch.calls[0]?.body).toEqual({ note: 'Moved the CTA below the menu under 400px', commit: sha, author: 'tester@box' });
-    expect(r.stdout).toContain(`#12 is now Ready for review (commit ${sha}).`);
-    expect(r.stdout).toContain('A human confirms it on the site');
+    expect(r.stdout).toContain(`#12 is now Done (commit ${sha}).`);
+    expect(r.stdout).toContain('Anyone can reopen it');
 
     writeTree(cwd, { 'style.css': 'a{color:red}' });
     const dirty = await runCli(['resolve', '12', '--note', 'x', '--commit', 'auto', '--json'], { cwd, fetch });
     expect(dirty.code).toBe(0);
     expect(dirty.stderr).toMatch(/^warning: uncommitted changes/);
-    expect(JSON.parse(dirty.stdout).issue.status).toBe('review');
+    expect(JSON.parse(dirty.stdout).issue.status).toBe('resolved');
   });
 
   it('resolve --commit auto outside a repo → exit 1', async () => {

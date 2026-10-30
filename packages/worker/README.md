@@ -47,10 +47,10 @@ Used by the [`annotate` CLI](../cli/README.md). Authenticate with `Authorization
 | `GET /project` | name, board, origins, counts per status |
 | `GET /issues?status=open\|new\|in_progress\|review\|resolved\|archived\|all&url=` | `open` (default) = new + in progress |
 | `GET /issues/:n` | everything: notes, anchor, env, **context** (element HTML, selector, landmark, styles, source hints, page context), comments, signed screenshot URLs |
-| `POST /issues/:n/claim` `{agent, minutes?}` | lease (default 30 min, max 240); 409 `claimed` if another agent holds it |
-| `POST /issues/:n/release` | drop the lease |
+| `POST /issues/:n/claim` `{agent, minutes?}` | lease (default 30 min, max 240); a `new` issue's card → "In progress" (found or created on first use); 409 `claimed` if another agent holds it |
+| `POST /issues/:n/release` | drop the lease; card back to the new list if it's still in "In progress" |
 | `POST /issues/:n/comments` `{text, author?}` | `**author** (via agent): text` |
-| `POST /issues/:n/resolve` `{note, commit?, author?}` | card → "Ready for review" (created on first use), status `review`. **Agents can't resolve**: a human confirms on the pin |
+| `POST /issues/:n/resolve` `{note, commit?, author?}` | card → first done list, status `resolved`, lease released. Agents call it only after checking the fix live |
 | `POST /issues/:n/reopen` `{note, author?}` | card → new list |
 | `GET / POST / DELETE /origins` `{origin}` | the sites allowed to load the widget (max 20) |
 
@@ -78,7 +78,7 @@ Production secrets are uploaded by [`scripts/deploy.sh`](../../scripts/deploy.sh
 ## Data
 
 D1 tables (`migrations/`):
-- `projects`: keys, allowed origins, encrypted Trello token, board, new/review/done lists, webhook.
+- `projects`: keys, allowed origins, encrypted Trello token, board, new/in-progress/review/done lists, webhook.
 - `issues`: Trello card, page URL, anchor, environment, **context**, reporter, status, claim lease, resolution, R2 keys.
 - `agent_tokens`: hashed CLI tokens.
 - `connect_sessions` and `cli_sessions`: 15-minute popup and CLI hand-off sessions.
@@ -115,7 +115,7 @@ src/sign.ts             signed screenshot URLs
 src/url.ts              page-URL normalization
 src/agent-auth.ts       Bearer agent-token check
 src/agent-tokens.ts     mint agent tokens
-src/review.ts           find or create the "Ready for review" list
+src/progress.ts         find or create the "In progress" list (used by claim)
 src/routes/             issues, comments, screenshots, project, agent, cli, connect, webhook, dev
 src/connect/            server-rendered popup pages (incl. CLI mode)
 ```

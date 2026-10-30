@@ -1,11 +1,11 @@
 ---
 name: annotate-qa
-description: Fix website QA issues that clients and teammates reported with the Annotate feedback widget, using the `annotate` CLI (list, claim, locate the source, fix, verify, hand back for review). Use when asked to "fix the QA issues", work through "annotate issues", handle "client feedback on the site", fix "issues from the feedback widget", feedback pins or Trello feedback cards, or when a repo has an .annotate.json.
+description: Fix website QA issues that clients and teammates reported with the Annotate feedback widget, using the `annotate` CLI (list, claim, locate the source, fix, ship, verify live, resolve). Use when asked to "fix the QA issues", work through "annotate issues", handle "client feedback on the site", fix "issues from the feedback widget", feedback pins or Trello feedback cards, or when a repo has an .annotate.json.
 ---
 
 # Annotate QA
 
-Issues come from the Annotate widget on the live site. The `annotate` CLI lists them, leases them to you, and hands them back for a human to confirm. Run it through Bash.
+Issues come from the Annotate widget on the live site. The `annotate` CLI lists them, leases them to you (the issue shows "In progress"), and closes them once the fix is live. Run it through Bash.
 
 - `--json` output is the contract: parse it, never scrape the human output. `annotate <cmd> --help` documents each command and its JSON.
 - Exit codes: 0 ok, 1 error/network, 2 usage, 3 not found or not configured, 4 claimed by someone else, 5 auth.
@@ -31,7 +31,7 @@ Issues come from the Annotate widget on the live site. The `annotate` CLI lists 
    - Read the repo's deploy instructions (CLAUDE.md, README). Usually pushing to the deploy branch is the deploy: push, then watch the CI run until it finishes (`gh run watch <id> --exit-status`). If it fails, read `gh run view <id> --log-failed` and fix it, or report it.
    - Never deploy over SSH or edit servers. If the repo has no push-to-deploy path, stop and tell the user what's needed. Don't hand them server commands to run on your behalf.
    - Then load `pageUrl` (cache-busted) and confirm the fix is there.
-9. **Resolve.** Run `annotate resolve <n> --note "<what changed, in plain words for the client>" --commit auto`. The issue moves to "Ready for review", and a human confirms it on the site. If the fix is committed but can't be live yet, don't resolve: `annotate comment` the commit and the blocker, then `annotate release`.
+9. **Resolve.** Run `annotate resolve <n> --note "<what changed, in plain words for the client>" --commit auto`. The issue moves to Done and its pin leaves the page, so only resolve after step 8 confirmed the fix live. If the fix is committed but can't be live yet, don't resolve: `annotate comment` the commit and the blocker, then `annotate release`.
 
 Then go back to step 1 for the next issue.
 
@@ -39,6 +39,6 @@ Then go back to step 1 for the next issue.
 
 - Never claim, in a note or to the user, that something is fixed without verifying it.
 - Blocked, unclear, or not a code problem (content, hosting, a third-party embed)? Run `annotate comment <n> "<findings, what you tried, what you need>"`, then `annotate release <n>`. Don't guess.
-- Never reopen issues on the human's behalf, and don't touch issues in `review` or `resolved` unless asked. Confirming and reopening are the human's decisions.
+- Never reopen issues on the human's behalf, and don't touch issues in `review` or `resolved` unless asked.
 - Work one issue at a time: claim, fix, then resolve (or release) before you claim the next.
 - Keep notes and comments short and factual. They appear on the Trello card and the pin, where the client reads them.

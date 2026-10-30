@@ -17,6 +17,7 @@ export interface ProjectRow {
   done_list_ids: string;
   webhook_id: string | null;
   review_list_id: string | null;
+  progress_list_id: string | null;
   token_revoked: number;
   next_number: number;
   ignore_query: number;

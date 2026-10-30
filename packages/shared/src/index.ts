@@ -1,6 +1,9 @@
 // Contracts shared by the widget, the Worker and (by convention) the WP plugin.
 
-/** 'review' = an agent (or developer) says it's fixed; a human confirms on the pin (→ resolved) or reopens (→ new). */
+/**
+ * 'in_progress' = an agent claimed it (or a human moved the card). 'resolved' = fixed and verified live; anyone can
+ * reopen it (→ new). 'review' = a human moved the card to the review list; the reporter confirms (→ resolved) on the pin.
+ */
 export type IssueStatus = 'new' | 'in_progress' | 'review' | 'resolved' | 'archived';
 
 /** A rectangle in CSS pixels (or fractions 0..1 where noted). */
@@ -320,7 +323,7 @@ export interface AgentIssueResponse {
   issue: AgentIssueDetail;
 }
 
-/** POST /v1/agent/issues/:number/claim → 200 AgentIssueResponse, or 409 ApiError code 'claimed'. */
+/** POST /v1/agent/issues/:number/claim → 200 AgentIssueResponse, or 409 ApiError code 'claimed'. A 'new' issue moves to the "In progress" list. */
 export interface AgentClaimRequest {
   /** Who is working on it, e.g. "claude@pierre-mbp". */
   agent: string;
@@ -332,7 +335,7 @@ export interface AgentCommentRequest {
   text: string;
   author?: string;
 }
-/** POST /v1/agent/issues/:number/resolve → card to the review list, status 'review', lease released. */
+/** POST /v1/agent/issues/:number/resolve → card to the first done list, status 'resolved', lease released. */
 export interface AgentResolveRequest {
   note: string;
   commit?: string;

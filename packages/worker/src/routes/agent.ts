@@ -1,6 +1,7 @@
 // Agent API (/v1/agent/*): what the `annotate` CLI calls on behalf of a coding agent.
 // Auth is a per-project agent token (requireAgent). Issues are addressed by their per-project NUMBER.
-// Agents never close issues: resolve moves the card to the review list, and a human confirms on the pin.
+// Claim moves the card to the "In progress" list, release puts it back, and resolve (after the agent has
+// verified the fix live) moves it to Done. Anyone can reopen it from the pin or Trello.
 
 import { Hono, type Context } from 'hono';
 import type {
@@ -22,7 +23,7 @@ import { trelloForProject } from '../crypto';
 import { signedScreenshotUrl } from '../sign';
 import { normalizeUrl } from '../url';
 import { agentCommentText, commentAuthorName } from '../card';
-import { ensureReviewList } from '../review';
+import { ensureProgressList } from '../progress';
 import { refreshFromTrello, trelloFailure } from './issues';
 
 const STATUSES: readonly IssueStatus[] = ['new', 'in_progress', 'review', 'resolved', 'archived'];
@@ -98,7 +99,7 @@ async function loadIssue(c: Ctx): Promise<IssueRow | Response> {
 
 /**
  * The full issue as AgentIssueResponse, re-read from D1 and refreshed from Trello (status self-heal +
- * comments). Pass the project explicitly after changing its lists (e.g. a new review_list_id).
+ * comments).
  */
 async function respondDetail(c: Ctx, number: number, project: ProjectRow = c.var.project, status: 200 | 201 = 200) {
   const row = await issueByNumber(c.env, project.id, number);
@@ -236,6 +237,10 @@ app.post('/issues/:number/claim', async (c) => {
   if (!renewal) {
     try {
       const trello = await trelloForProject(c.env, project);
+      if (row.status === 'new') {
+        await trello.moveCard(row.trello_card_id, await ensureProgressList(c.env, project, trello));
+        await c.env.DB.prepare("UPDATE issues SET status = 'in_progress' WHERE id = ?").bind(row.id).run();
+      }
       await trello.addComment(row.trello_card_id, `**${agent}** (via agent): 🤖 Working on this`);
     } catch (e) {
       // Undo the lease (if it's still the one we set) so a failed claim leaves nothing behind.
@@ -249,9 +254,23 @@ app.post('/issues/:number/claim', async (c) => {
 });
 
 app.post('/issues/:number/release', async (c) => {
+  const project = c.var.project;
   const row = await loadIssue(c);
   if (row instanceof Response) return row;
-  await c.env.DB.prepare('UPDATE issues SET claimed_by = NULL, claimed_until = NULL, updated_at = ? WHERE id = ?').bind(nowIso(), row.id).run();
+  let status = row.status;
+  // Back to the new list, unless someone has moved the card out of "In progress" since the claim.
+  if (status === 'in_progress' && project.progress_list_id) {
+    try {
+      const trello = await trelloForProject(c.env, project);
+      if ((await trello.getCard(row.trello_card_id))?.idList === project.progress_list_id) {
+        await trello.moveCard(row.trello_card_id, project.new_list_id);
+        status = 'new';
+      }
+    } catch (e) {
+      return trelloFailure(c, project, e);
+    }
+  }
+  await c.env.DB.prepare('UPDATE issues SET status = ?, claimed_by = NULL, claimed_until = NULL, updated_at = ? WHERE id = ?').bind(status, nowIso(), row.id).run();
   return respondDetail(c, row.number);
 });
 
@@ -288,21 +307,21 @@ app.post('/issues/:number/resolve', async (c) => {
   const author = strField(body, 'author', { max: MAX_NAME });
   if (isErr(author)) return apiError(c, 400, 'bad_request', author.error);
 
-  let updated: ProjectRow;
+  const doneListId = parseJson<string[]>(project.done_list_ids, [])[0];
+  if (!doneListId) return apiError(c, 400, 'bad_request', 'This project has no done list');
+
   try {
     const trello = await trelloForProject(c.env, project);
-    const reviewListId = await ensureReviewList(c.env, project, trello);
-    updated = { ...project, review_list_id: reviewListId };
-    await trello.moveCard(row.trello_card_id, reviewListId);
-    await c.env.DB.prepare("UPDATE issues SET status = 'review', resolution = ?, claimed_by = NULL, claimed_until = NULL, updated_at = ? WHERE id = ?")
+    await trello.moveCard(row.trello_card_id, doneListId);
+    await c.env.DB.prepare("UPDATE issues SET status = 'resolved', resolution = ?, claimed_by = NULL, claimed_until = NULL, updated_at = ? WHERE id = ?")
       .bind(note!, nowIso(), row.id)
       .run();
     const commitLine = commit ? `\nCommit: ${commit.replace(/\s+/g, ' ')}` : '';
-    await trello.addComment(row.trello_card_id, agentCommentText(author, `✅ Ready for review: ${note!}${commitLine}`));
+    await trello.addComment(row.trello_card_id, agentCommentText(author, `✅ Fixed: ${note!}${commitLine}`));
   } catch (e) {
     return trelloFailure(c, project, e);
   }
-  return respondDetail(c, row.number, updated);
+  return respondDetail(c, row.number);
 });
 
 app.post('/issues/:number/reopen', async (c) => {

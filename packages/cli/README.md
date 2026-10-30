@@ -1,6 +1,6 @@
 # @annotate/cli
 
-`annotate` fetches the QA issues reported through the Annotate widget, maps them to files in your checkout, and hands fixes back for a human to confirm. Coding agents (Claude Code) run it through Bash, and people use it too. It's a single Node file (Node ≥20) with no runtime dependencies. `annotate --help` and `annotate <command> --help` are the reference.
+`annotate` fetches the QA issues reported through the Annotate widget, maps them to files in your checkout, and closes them once the fix is live. Coding agents (Claude Code) run it through Bash, and people use it too. It's a single Node file (Node ≥20) with no runtime dependencies. `annotate --help` and `annotate <command> --help` are the reference.
 
 ## Install
 
@@ -45,12 +45,12 @@ The CLI never sees a Trello token. The hand-off works like a device login:
 | `claim <n> [--minutes m] [--as name]` | Leases the issue (default 30 min, max 240). The default name is `<user>@<hostname>` |
 | `release <n>` | Drops the lease |
 | `comment <n> <text…>` | Adds a comment; it shows on the Trello card and the pin |
-| `resolve <n> --note "…" [--commit <sha>\|auto]` | Moves the issue to **review** ("Ready for review"). `auto` = `git rev-parse --short HEAD` |
+| `resolve <n> --note "…" [--commit <sha>\|auto]` | Moves the issue to **Done** (`resolved`). Run it only once the fix is live and checked. `auto` = `git rev-parse --short HEAD` |
 | `reopen <n> --note "…"` | Moves the issue back to new |
 | `origins [list] \| add <origin> \| remove <origin>` | Sets the sites allowed to load the widget |
 | `skill install [--global] \| skill print` | Installs or prints the Claude Code skill |
 
-Issues are addressed by their number (`12` or `"#12"`). Agents never close issues: `resolve` moves an issue to review, and a person on the site clicks **Confirm** (resolved) or **Still broken** (back to new).
+Issues are addressed by their number (`12` or `"#12"`). `claim` moves a new issue to **In progress** on Trello and the pin, and `release` puts it back. `resolve` moves it to **Done**. Anyone can reopen it from Trello.
 
 ### `--json`
 

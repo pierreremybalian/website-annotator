@@ -4,6 +4,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- **Agents close what they've verified.** `annotate claim` moves a new issue to "In progress" (an existing list like Doing, or a new one after the new list), and `annotate release` moves it back. `annotate resolve` now moves the card to Done (`resolved`) instead of "Ready for review", so the agent resolves only once the fix is live and checked on the page. Anyone can reopen from Trello. The review list and the pin's Looks good / Still broken stay for cards people move there.
+
 ### Fixed
 - Screenshots no longer drift from the selection on pages with inline `<style>` blocks. The page's own CSS re-applied on top of the captured styles, so on a WordPress site a footer selection showed the area above it.
 

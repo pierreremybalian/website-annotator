@@ -24,7 +24,7 @@ Issues (addressed by number: 12 or "#12")
   release <n>                      Drop the lease
   comment <n> <text…>              Add a comment (Trello card + pin)
   resolve <n> --note "…" [--commit <sha>|auto]
-                                   Mark fixed → review ("Ready for review"); a human confirms
+                                   Mark fixed and verified live → Done
   reopen <n> --note "…"            Move back to new
   origins [list|add|remove] [<origin>]
                                    Sites allowed to load the widget
@@ -122,8 +122,8 @@ ${EXIT_CODES_LINE}`,
 
   claim: `Usage: annotate claim <n> [--minutes <m>] [--as <name>] [--json]
 
-Lease issue #n so other agents skip it. Release it with
-\`annotate release\`; \`annotate resolve\` releases it too.
+Lease issue #n so other agents skip it. A new issue moves to "In progress" on Trello and the pin.
+Release it with \`annotate release\`; \`annotate resolve\` releases it too.
 
   --minutes <m>   Lease length, 1-240 (server default 30)
   --as <name>     Who is working on it (default: <user>@<hostname>)
@@ -133,7 +133,7 @@ Exit code 4 if someone else holds the lease (the message names them). ${EXIT_COD
 
   release: `Usage: annotate release <n> [--json]
 
-Drop your lease on #n so someone else can take it.
+Drop your lease on #n so someone else can take it. The issue goes back to new.
 
   --json   The API response
 
@@ -150,8 +150,8 @@ ${EXIT_CODES_LINE}`,
 
   resolve: `Usage: annotate resolve <n> --note "<what changed>" [--commit <sha>|auto] [--as <name>] [--json]
 
-Mark #n fixed: status review ("Ready for review" on Trello) and the lease released. Agents never
-close issues; a human confirms on the site (Confirm → resolved, Still broken → new).
+Mark #n fixed: status resolved (the card moves to Done on Trello) and the lease released. Only
+resolve once the fix is live on the reported page and you've checked it there. Anyone can reopen it.
 
   --note <text>     Required. What changed, in plain words; shown on the card and the pin
   --commit <sha>    The fixing commit; "auto" = git rev-parse --short HEAD (warns on a dirty tree)

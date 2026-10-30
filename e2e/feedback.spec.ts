@@ -127,7 +127,7 @@ test('connect popup posts keys back to the opener', async ({ page, context }) =>
   });
 });
 
-test('agent loop: pick element → CLI show/claim/resolve → human confirms on the pin', async ({ page }) => {
+test('agent loop: pick element → CLI show/claim/resolve → pin goes In progress, then Done', async ({ page }) => {
   const { execFileSync } = await import('node:child_process');
   execFileSync('pnpm', ['--filter', '@annotate/cli', 'build'], { stdio: 'ignore' });
   const cli = (...args: string[]) =>
@@ -164,20 +164,21 @@ test('agent loop: pick element → CLI show/claim/resolve → human confirms on 
   expect(shown.context.element.tag).toBe('h1');
   expect(shown.sources.length).toBeGreaterThan(0);
 
+  // Claiming moves it to "In progress" on the pin.
   cli('claim', n, '--as', 'e2e-agent');
-  const resolved = JSON.parse(cli('resolve', n, '--note', 'Balanced the heading with text-wrap', '--commit', 'abc1234', '--as', 'e2e-agent', '--json'));
-  expect(resolved.issue.status).toBe('review');
-
-  // The client sees "Ready for review" on the pin and confirms.
   await page.reload();
-  const pin = page.getByRole('button', { name: /Heading wraps awkwardly/ }).last();
+  await expect(page.getByRole('button', { name: `Issue #${n}: Heading wraps awkwardly (In progress)` })).toBeVisible();
+
+  // Resolving (after verifying live) moves it to Done: hidden by default, listed under "Show resolved".
+  const resolved = JSON.parse(cli('resolve', n, '--note', 'Balanced the heading with text-wrap', '--commit', 'abc1234', '--as', 'e2e-agent', '--json'));
+  expect(resolved.issue.status).toBe('resolved');
+  await page.reload();
+  await page.getByRole('button', { name: 'Feedback' }).click();
+  await page.getByRole('menuitemcheckbox', { name: /Show resolved/ }).click();
+  const pin = page.getByRole('button', { name: `Issue #${n}: Heading wraps awkwardly (Resolved)` });
   await expect(pin).toBeVisible();
   await pin.click();
-  const pop = page.getByRole('dialog', { name: new RegExp(`Issue #${n}`) });
-  await expect(pop.getByText('Marked as fixed')).toBeVisible();
-  await expect(pop.getByText('Balanced the heading with text-wrap')).toBeVisible();
-  await pop.getByRole('button', { name: /Looks good/ }).click();
-  await expect(pop.getByText(/Thanks/)).toBeVisible();
+  await expect(page.getByRole('dialog', { name: new RegExp(`Issue #${n}`) }).getByText('Balanced the heading with text-wrap')).toBeVisible();
 
   expect(JSON.parse(cli('show', n, '--json')).status).toBe('resolved');
 });

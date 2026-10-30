@@ -47,7 +47,7 @@ async function seed(c: Context<AppEnv>) {
     .run();
   const row = await c.env.DB.prepare('SELECT id FROM projects WHERE public_key = ?').bind(p.publicKey).first<{ id: string }>();
   const projectId = row?.id ?? p.id;
-  // The review list is left alone: ensureReviewList creates it on the first agent resolve.
+  // The progress list is left alone: ensureProgressList finds or creates it on the first agent claim.
   await c.env.DB.prepare(`INSERT OR REPLACE INTO agent_tokens (id, project_id, token_hash, label, created_at) VALUES ('dev-agent', ?, ?, 'dev', ?)`)
     .bind(projectId, await sha256Hex(p.agentToken), now)
     .run();

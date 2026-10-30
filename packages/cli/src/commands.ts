@@ -323,8 +323,8 @@ export const COMMANDS: Command[] = [
       const data = await api.post(`/issues/${n}/resolve`, body);
       if (inv.json) return inv.printJson(data);
       inv.print([
-        `${inv.style.green('✓')} #${n} is now ${inv.style.bold('Ready for review')}${commit ? ` (commit ${commit})` : ''}.`,
-        'A human confirms it on the site: Confirm closes it, Still broken sends it back to new.',
+        `${inv.style.green('✓')} #${n} is now ${inv.style.bold('Done')}${commit ? ` (commit ${commit})` : ''}.`,
+        'Anyone can reopen it from the pin or Trello.',
       ]);
     },
   },

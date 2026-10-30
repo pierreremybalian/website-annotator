@@ -285,12 +285,14 @@ describe('claim / release', () => {
     const res = await post(p, '/issues/1/claim', { agent: 'claude@mbp', minutes: 10 });
     expect(res.status).toBe(200);
     const { issue } = await res.json<AgentIssueResponse>();
-    expect(issue).toMatchObject({ claimedBy: 'claude@mbp', status: 'new' });
+    expect(issue).toMatchObject({ claimedBy: 'claude@mbp', status: 'in_progress' });
     const until = Date.parse(issue.claimedUntil!);
     expect(until).toBeGreaterThan(Date.now() + 9 * 60_000);
     expect(until).toBeLessThanOrEqual(Date.now() + 10 * 60_000);
     expect(await commentsOf(created.id)).toEqual(['**claude@mbp** (via agent): 🤖 Working on this']);
-    expect((await cardOf(created.id)).idList).toBe('list-1'); // claiming doesn't move the card
+    expect((await cardOf(created.id)).idList).toBe('list-2'); // the board's "Doing" list
+    expect((await projectRow(p.id))!.progress_list_id).toBe('list-2');
+    expect((await issueRow(created.id))!.status).toBe('in_progress');
 
     const conflict = await post(p, '/issues/1/claim', { agent: 'codex@ci' });
     expect(conflict.status).toBe(409);
@@ -318,15 +320,54 @@ describe('claim / release', () => {
     expect(await commentsOf(created.id)).toEqual(['**a** (via agent): 🤖 Working on this', '**b** (via agent): 🤖 Working on this']);
   });
 
-  it('releases the lease', async () => {
+  it('releases the lease and moves the card back to the new list', async () => {
     const p = await createProject();
     const created = await createIssue(p);
     await post(p, '/issues/1/claim', { agent: 'a' });
     const res = await post(p, '/issues/1/release');
     expect(res.status).toBe(200);
-    expect((await res.json<AgentIssueResponse>()).issue).toMatchObject({ claimedBy: null, claimedUntil: null });
-    expect((await issueRow(created.id))!.claimed_by).toBeNull();
+    expect((await res.json<AgentIssueResponse>()).issue).toMatchObject({ claimedBy: null, claimedUntil: null, status: 'new' });
+    expect(await issueRow(created.id)).toMatchObject({ claimed_by: null, status: 'new' });
+    expect((await cardOf(created.id)).idList).toBe('list-1');
     expect((await post(p, '/issues/1/claim', { agent: 'b' })).status).toBe(200);
+  });
+
+  it('leaves a card a human moved elsewhere since the claim', async () => {
+    const p = await createProject();
+    const created = await createIssue(p);
+    await post(p, '/issues/1/claim', { agent: 'a' });
+    mockTrelloState().lists.set('list-blocked', { id: 'list-blocked', name: 'Blocked', pos: 2500, idBoard: 'board-1' });
+    mockMoveCard((await issueRow(created.id))!.trello_card_id, 'list-blocked');
+    expect((await post(p, '/issues/1/release')).status).toBe(200);
+    expect((await cardOf(created.id)).idList).toBe('list-blocked');
+    expect((await issueRow(created.id))!.status).toBe('in_progress');
+  });
+
+  it('creates an "In progress" list after the new list when none fits', async () => {
+    const p = await createProject();
+    mockTrelloState().lists.get('list-2')!.name = 'Backlog';
+    const created = await createIssue(p);
+    expect((await post(p, '/issues/1/claim', { agent: 'a' })).status).toBe(200);
+    const id = (await projectRow(p.id))!.progress_list_id!;
+    expect(mockTrelloState().lists.get(id)).toMatchObject({ name: 'In progress', pos: (1024 + 2048) / 2 });
+    expect((await cardOf(created.id)).idList).toBe(id);
+
+    // Reused, not recreated.
+    await createIssue(p);
+    expect((await post(p, '/issues/2/claim', { agent: 'a' })).status).toBe(200);
+    expect([...mockTrelloState().lists.values()].filter((l) => l.name === 'In progress')).toHaveLength(1);
+  });
+
+  it("doesn't move an issue that isn't new", async () => {
+    const p = await createProject();
+    const created = await createIssue(p);
+    mockTrelloState().lists.set('list-qa', { id: 'list-qa', name: 'QA', pos: 2500, idBoard: 'board-1' });
+    await env.DB.prepare("UPDATE projects SET review_list_id = 'list-qa' WHERE id = ?").bind(p.id).run();
+    mockMoveCard((await issueRow(created.id))!.trello_card_id, 'list-qa');
+    await env.DB.prepare("UPDATE issues SET status = 'review' WHERE id = ?").bind(created.id).run();
+    expect((await post(p, '/issues/1/claim', { agent: 'a' })).status).toBe(200);
+    expect((await cardOf(created.id)).idList).toBe('list-qa');
+    expect((await projectRow(p.id))!.progress_list_id).toBeNull();
   });
 
   it.each<[string, unknown]>([
@@ -393,67 +434,39 @@ describe('comments', () => {
 });
 
 describe('resolve', () => {
-  it('creates the review list once, moves the card and records the resolution', async () => {
+  it('moves the card to Done and records the resolution', async () => {
     const p = await createProject();
     const a = await createIssue(p);
-    const b = await createIssue(p);
     await post(p, '/issues/1/claim', { agent: 'claude' });
 
     const res = await post(p, '/issues/1/resolve', { note: 'Fixed the z-index.', commit: 'abc1234', author: 'Claude' });
     expect(res.status).toBe(200);
     const { issue } = await res.json<AgentIssueResponse>();
-    expect(issue).toMatchObject({ status: 'review', resolution: 'Fixed the z-index.', claimedBy: null, claimedUntil: null });
+    expect(issue).toMatchObject({ status: 'resolved', resolution: 'Fixed the z-index.', claimedBy: null, claimedUntil: null });
+    expect((await cardOf(a.id)).idList).toBe('list-3');
+    expect(await issueRow(a.id)).toMatchObject({ status: 'resolved', resolution: 'Fixed the z-index.', claimed_by: null, claimed_until: null });
+    expect((await commentsOf(a.id)).at(-1)).toBe('**Claude** (via agent): ✅ Fixed: Fixed the z-index.\nCommit: abc1234');
+    expect(issue.comments.at(-1)).toMatchObject({ author: 'Claude', via: 'agent', text: '✅ Fixed: Fixed the z-index.\nCommit: abc1234' });
+    expect([...mockTrelloState().lists.values()].some((l) => l.name === 'Ready for review')).toBe(false);
 
-    const lists = [...mockTrelloState().lists.values()];
-    const review = lists.filter((l) => l.name === 'Ready for review');
-    expect(review).toHaveLength(1);
-    expect(review[0]!.pos).toBe((2048 + 3072) / 2); // between Doing and Done
-    expect((await projectRow(p.id))!.review_list_id).toBe(review[0]!.id);
-    expect((await cardOf(a.id)).idList).toBe(review[0]!.id);
-    expect(await issueRow(a.id)).toMatchObject({ status: 'review', resolution: 'Fixed the z-index.', claimed_by: null, claimed_until: null });
-    expect((await commentsOf(a.id)).at(-1)).toBe('**Claude** (via agent): ✅ Ready for review: Fixed the z-index.\nCommit: abc1234');
-    expect(issue.comments.at(-1)).toMatchObject({ author: 'Claude', via: 'agent', text: '✅ Ready for review: Fixed the z-index.\nCommit: abc1234' });
-
-    // Reused, not recreated.
-    expect((await post(p, '/issues/2/resolve', { note: 'Done too' })).status).toBe(200);
-    expect([...mockTrelloState().lists.values()].filter((l) => l.name === 'Ready for review')).toHaveLength(1);
-    expect((await cardOf(b.id)).idList).toBe(review[0]!.id);
-    expect((await commentsOf(b.id)).at(-1)).toBe('**Agent** (via agent): ✅ Ready for review: Done too');
-
-    // Self-heal keeps 'review' now that the project knows the list.
-    expect((await detail(p, 1)).status).toBe('review');
-    expect((await list(p, '?status=review')).map((i) => i.number)).toEqual([1, 2]);
+    // Self-heal agrees.
+    expect((await detail(p, 1)).status).toBe('resolved');
+    expect((await list(p, '?status=resolved')).map((i) => i.number)).toEqual([1]);
   });
 
-  it('uses an existing review-like list that is neither the new nor a done list', async () => {
+  it('uses the first done list', async () => {
     const p = await createProject({ doneListIds: ['list-3', 'list-verified'] });
-    const s = mockTrelloState();
-    s.lists.set('list-verified', { id: 'list-verified', name: 'Verified', pos: 5000, idBoard: 'board-1' });
-    s.lists.set('list-qa', { id: 'list-qa', name: 'QA', pos: 2500, idBoard: 'board-1' });
+    mockTrelloState().lists.set('list-verified', { id: 'list-verified', name: 'Verified', pos: 5000, idBoard: 'board-1' });
     const a = await createIssue(p);
     expect((await post(p, '/issues/1/resolve', { note: 'x' })).status).toBe(200);
-    expect((await cardOf(a.id)).idList).toBe('list-qa');
-    expect((await projectRow(p.id))!.review_list_id).toBe('list-qa');
-    expect(s.lists.size).toBe(5);
+    expect((await cardOf(a.id)).idList).toBe('list-3');
   });
 
-  it('replaces a stored review list that was deleted from the board', async () => {
-    const p = await createProject();
-    await env.DB.prepare("UPDATE projects SET review_list_id = 'list-gone' WHERE id = ?").bind(p.id).run();
-    const a = await createIssue(p);
-    expect((await post(p, '/issues/1/resolve', { note: 'x' })).status).toBe(200);
-    const id = (await projectRow(p.id))!.review_list_id!;
-    expect(id).not.toBe('list-gone');
-    expect(mockTrelloState().lists.get(id)!.name).toBe('Ready for review');
-    expect((await cardOf(a.id)).idList).toBe(id);
-  });
-
-  it('creates the list at the bottom when the board has no done list', async () => {
+  it('400s when the project has no done list', async () => {
     const p = await createProject({ doneListIds: [] });
-    await createIssue(p);
-    expect((await post(p, '/issues/1/resolve', { note: 'x' })).status).toBe(200);
-    const review = mockTrelloState().lists.get((await projectRow(p.id))!.review_list_id!)!;
-    expect(review.pos).toBe(3072 + 1024);
+    const a = await createIssue(p);
+    expect((await post(p, '/issues/1/resolve', { note: 'x' })).status).toBe(400);
+    expect((await issueRow(a.id))!.status).toBe('new');
   });
 
   it('400s without a note', async () => {
@@ -465,8 +478,9 @@ describe('resolve', () => {
   });
 
   it('502s with trello_error on a Trello failure and token_revoked on a 401', async () => {
-    const p = await createProject({ boardId: 'board-gone' });
+    const p = await createProject();
     const created = await createIssue(p);
+    mockTrelloState().lists.delete('list-3');
     const res = await post(p, '/issues/1/resolve', { note: 'x' });
     expect(res.status).toBe(502);
     expect(await res.json<ApiError>()).toMatchObject({ code: 'trello_error' });
