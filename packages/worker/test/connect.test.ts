@@ -124,7 +124,7 @@ describe('connect flow', () => {
       token_revoked: 0,
     });
     expect(p!.webhook_id).toBeTruthy();
-    expect(await decryptToken(env, p!.trello_token_enc)).toBe(MOCK_TOKEN);
+    expect(await decryptToken(env, p!.trello_token_enc!)).toBe(MOCK_TOKEN);
     // The test shares the Worker's isolate, so the mock store is visible here.
     expect(mockTrelloState().webhooks.get(p!.webhook_id!)).toMatchObject({ callbackURL: `${BASE}/trello/webhook`, idModel: 'board-1' });
 

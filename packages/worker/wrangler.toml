@@ -18,6 +18,10 @@ migrations_dir = "migrations"
 binding = "SCREENSHOTS"
 bucket_name = "annotate-screenshots"
 
+# Retries failed pushes to Trello, imports pre-0.3 comments and pulls one board per run (src/cron.ts).
+[triggers]
+crons = ["*/10 * * * *"]
+
 [vars]
 # Public base URL of this Worker; used for Trello return_url, webhook callbacks and signed screenshot URLs.
 PUBLIC_URL = "https://annotate.pierre-51f.workers.dev"

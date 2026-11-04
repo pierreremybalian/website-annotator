@@ -9,6 +9,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **QA agent server** (`scripts/qa-agent/`): `curl … | sudo bash` installs Claude Code, the CLI and a hardened `annotate-watch@<site>` systemd service on Ubuntu. `annotate-agent login / add / logs` manage it, with one deploy key per site. The Worker serves the CLI at `/dl/annotate.mjs`.
 
 ### Changed
+- **Annotate holds the issues; Trello is an optional sync.** Issues, statuses and comments now live in Annotate's database (migration 0005), and projects can run without a Trello board. For projects with one, every change made in Annotate is mirrored to the card, and moves, archiving and comments made in Trello come back through the webhook. A cron runs every 10 minutes. It retries pushes that failed, imports the comments of cards from before this release, and pulls one board per run to catch missed webhooks.
+  - A Trello outage or revoked token no longer fails a report, comment or agent action (they used to return 502). The change is saved, and the push is retried once Trello works again.
+  - Deleting a card in Trello now archives the issue instead of deleting it.
+  - `shortUrl` is null for issues without a card. Revoked agent tokens are refused.
 - **Agents close what they've verified.** `annotate claim` moves a new issue to "In progress" (an existing list like Doing, or a new one after the new list), and `annotate release` moves it back. `annotate resolve` now moves the card to Done (`resolved`) instead of "Ready for review", so the agent resolves only once the fix is live and checked on the page. Anyone can reopen from Trello. The review list and the pin's Looks good / Still broken stay for cards people move there.
 
 ### Fixed

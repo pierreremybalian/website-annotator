@@ -3,6 +3,8 @@ export interface Env {
   SCREENSHOTS: R2Bucket;
   ASSETS: Fetcher;
   PUBLIC_URL: string;
+  /** The Worker's previous public URL, if it moved: Trello webhooks registered there still sign with it. */
+  LEGACY_PUBLIC_URL?: string;
   ALLOWED_TRELLO_ORG: string;
   TRELLO_MOCK: string;
   TRELLO_KEY: string;

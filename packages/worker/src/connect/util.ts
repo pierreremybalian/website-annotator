@@ -7,6 +7,10 @@ export const publicBase = (env: Pick<Env, 'PUBLIC_URL'>) => env.PUBLIC_URL.repla
 /** The callback URL the board webhook is registered with. The webhook signature covers it, so both sides must agree. */
 export const webhookCallbackUrl = (env: Pick<Env, 'PUBLIC_URL'>) => `${publicBase(env)}/trello/webhook`;
 
+/** Callback URLs a webhook signature may cover: the current one, and the Worker's earlier URL (webhooks keep the URL they were registered with). */
+export const webhookCallbackUrls = (env: Pick<Env, 'PUBLIC_URL' | 'LEGACY_PUBLIC_URL'>) =>
+  [env.PUBLIC_URL, ...(env.LEGACY_PUBLIC_URL ? [env.LEGACY_PUBLIC_URL] : [])].map((u) => webhookCallbackUrl({ PUBLIC_URL: u }));
+
 /** Parse an absolute http(s) URL, or null. */
 export function parseHttpUrl(v: unknown): URL | null {
   if (typeof v !== 'string' || !v.trim() || v.length > 2048) return null;

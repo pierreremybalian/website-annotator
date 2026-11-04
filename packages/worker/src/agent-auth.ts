@@ -14,10 +14,10 @@ export const requireAgent: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!m) return apiError(c, 401, 'unauthorized', 'Missing agent token (Authorization: Bearer at_…)');
 
   const hash = await sha256Hex(m[1]!);
-  const row = await c.env.DB.prepare('SELECT t.id AS agent_token_id, p.* FROM agent_tokens t JOIN projects p ON p.id = t.project_id WHERE t.token_hash = ?')
+  const row = await c.env.DB.prepare('SELECT t.id AS agent_token_id, p.* FROM agent_tokens t JOIN projects p ON p.id = t.project_id WHERE t.token_hash = ? AND t.revoked_at IS NULL')
     .bind(hash)
     .first<ProjectRow & { agent_token_id: string }>();
-  if (!row) return apiError(c, 401, 'unauthorized', 'Invalid agent token');
+  if (!row) return apiError(c, 401, 'unauthorized', 'Invalid or revoked agent token; run `annotate init` again');
 
   const { agent_token_id: tokenId, ...project } = row;
   try {

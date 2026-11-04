@@ -1,24 +1,21 @@
 import { Hono, type Context } from 'hono';
 import type {
-  Comment,
   CreateIssueMeta,
   CreateIssueResponse,
   GetIssueResponse,
   IssueActionResponse,
   IssueContext,
-  IssueStatus,
   IssueSummary,
   ListIssuesResponse,
   SourceHint,
 } from '@annotate/shared';
 import type { AppEnv, Env } from '../env';
-import { nowIso, randomId, statusForList, type IssueRow, type ProjectRow } from '../db';
-import { apiError, markTokenRevoked, requireProject } from '../auth';
-import { trelloForProject } from '../crypto';
-import { TrelloError, type TrelloCard } from '../trello';
+import { hasTrello, nowIso, randomId, type IssueRow } from '../db';
+import { apiError, requireProject } from '../auth';
 import { normalizeUrl } from '../url';
 import { signedScreenshotUrl } from '../sign';
-import { cardDescription, cardName, commentAuthorName, issueTitle, parseComment, widgetCommentText } from '../card';
+import { commentAuthorName, issueTitle, toComment } from '../card';
+import { createIssue, listComments, setStatus, type NewComment } from '../tracker';
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_META_CHARS = 512 * 1024;
@@ -118,57 +115,16 @@ async function readImage(form: FormData, field: string): Promise<Image | string>
   return { file: v, type: v.type, ext: v.type === 'image/png' ? 'png' : 'jpg' };
 }
 
-/** 502 for a Trello failure; a 401 also flags the project's token as revoked. Rethrows non-Trello errors. */
-export async function trelloFailure(c: Context<AppEnv>, project: ProjectRow, e: unknown) {
-  if (!(e instanceof TrelloError)) throw e;
-  if (e.revoked) {
-    await markTokenRevoked(c.env, project.id);
-    return apiError(c, 502, 'token_revoked', 'The Trello connection was revoked; reconnect Trello for this project');
-  }
-  console.error(e);
-  return apiError(c, 502, 'trello_error', `Trello request failed (${e.status})`);
-}
-
 export async function issueForProject(env: Env, projectId: string, id: string): Promise<IssueRow | null> {
   return env.DB.prepare('SELECT * FROM issues WHERE id = ? AND project_id = ?').bind(id, projectId).first<IssueRow>();
 }
 
-/**
- * Re-read the issue's card so a missed webhook doesn't leave a stale status, and fetch its comments
- * (oldest first). Returns null when the card was deleted (the row and screenshots are removed).
- * Trello failures are not fatal: the stored status is kept and comments are empty (a 401 flags the token).
- */
-export async function refreshFromTrello(env: Env, project: ProjectRow, row: IssueRow): Promise<{ status: IssueStatus; comments: Comment[] } | null> {
-  let status = row.status;
-  let comments: Comment[] = [];
-  try {
-    const trello = await trelloForProject(env, project);
-    const card = await trello.getCard(row.trello_card_id);
-    if (!card) {
-      await env.DB.prepare('DELETE FROM issues WHERE id = ?').bind(row.id).run();
-      await env.SCREENSHOTS.delete([row.screenshot_key, row.context_key]);
-      return null;
-    }
-    const fresh: IssueStatus = card.closed ? 'archived' : statusForList(project, card.idList);
-    if (fresh !== row.status) {
-      await env.DB.prepare('UPDATE issues SET status = ?, updated_at = ? WHERE id = ?').bind(fresh, nowIso(), row.id).run();
-      status = fresh;
-    }
-    // Trello returns newest first; clients show oldest first.
-    comments = (await trello.getComments(row.trello_card_id)).reverse().map(parseComment);
-  } catch (e) {
-    if (e instanceof TrelloError && e.revoked) await markTokenRevoked(env, project.id);
-    else console.error(`Trello refresh failed for issue ${row.id}`, e);
-  }
-  return { status, comments };
-}
-
-async function toSummary(env: Env, row: IssueRow, status: IssueStatus = row.status): Promise<IssueSummary> {
+async function toSummary(env: Env, row: IssueRow): Promise<IssueSummary> {
   return {
     id: row.id,
     number: row.number,
     title: row.title,
-    status,
+    status: row.status,
     anchor: JSON.parse(row.anchor),
     reporterName: row.reporter_name,
     createdAt: row.created_at,
@@ -208,7 +164,6 @@ app.post('/', requireProject, async (c) => {
   if (typeof context === 'string') return bad(context);
 
   const pageUrl = normalizeUrl(meta.env.url, { ignoreQuery: project.ignore_query });
-  const trello = await trelloForProject(c.env, project);
 
   const next = await c.env.DB.prepare('UPDATE projects SET next_number = next_number + 1 WHERE id = ? RETURNING next_number - 1 AS n')
     .bind(project.id)
@@ -224,53 +179,28 @@ app.post('/', requireProject, async (c) => {
     c.env.SCREENSHOTS.put(contextKey, await context.file.arrayBuffer(), { httpMetadata: { contentType: context.type } }),
   ]);
 
-  let card: TrelloCard;
-  try {
-    card = await trello.createCard({ idList: project.new_list_id, name: cardName(number, meta.title, meta.notes), desc: cardDescription(meta), pos: 'top' });
-  } catch (e) {
-    await c.env.SCREENSHOTS.delete([screenshotKey, contextKey]);
-    return trelloFailure(c, project, e);
-  }
-
-  // The card exists now, so the issue is recorded even if an attachment fails: a 502 here would
-  // leave an untracked card behind and the reporter's retry would create a duplicate.
-  try {
-    await trello.addAttachment(card.id, selection.file, `issue-${number}.${selection.ext}`, true);
-    await trello.addAttachment(card.id, context.file, `issue-${number}-context.${context.ext}`);
-  } catch (e) {
-    console.error(`attachment upload failed for card ${card.id}`, e);
-    if (e instanceof TrelloError && e.revoked) await markTokenRevoked(c.env, project.id);
-  }
-
   const now = nowIso();
-  await c.env.DB.prepare(
-    `INSERT INTO issues (id, project_id, number, trello_card_id, trello_short_url, page_url, page_url_raw, title, notes,
-       anchor, env, context, reporter_name, reporter_email, screenshot_key, context_key, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`,
-  )
-    .bind(
-      id,
-      project.id,
-      number,
-      card.id,
-      card.shortUrl,
-      pageUrl,
-      meta.env.url,
-      issueTitle(meta.title, meta.notes),
-      meta.notes,
-      JSON.stringify(meta.anchor),
-      JSON.stringify(meta.env),
-      meta.context ? JSON.stringify(meta.context) : null,
-      meta.reporter.name,
-      meta.reporter.email,
-      screenshotKey,
-      contextKey,
-      now,
-      now,
-    )
-    .run();
+  // Recorded even when Trello is down: the card is created later by the cron (src/cron.ts).
+  const issue = await createIssue(c.env, project, {
+    id,
+    project_id: project.id,
+    number,
+    page_url: pageUrl,
+    page_url_raw: meta.env.url,
+    title: issueTitle(meta.title, meta.notes),
+    notes: meta.notes,
+    anchor: JSON.stringify(meta.anchor),
+    env: JSON.stringify(meta.env),
+    context: meta.context ? JSON.stringify(meta.context) : null,
+    reporter_name: meta.reporter.name,
+    reporter_email: meta.reporter.email,
+    screenshot_key: screenshotKey,
+    context_key: contextKey,
+    created_at: now,
+    updated_at: now,
+  });
 
-  return c.json<CreateIssueResponse>({ id, number, shortUrl: card.shortUrl }, 201);
+  return c.json<CreateIssueResponse>({ id, number, shortUrl: issue.trello_short_url }, 201);
 });
 
 app.get('/', requireProject, async (c) => {
@@ -296,22 +226,18 @@ app.get('/:id', requireProject, async (c) => {
   const row = await issueForProject(c.env, project.id, c.req.param('id'));
   if (!row) return apiError(c, 404, 'not_found', 'Issue not found');
 
-  const fresh = await refreshFromTrello(c.env, project, row);
-  if (!fresh) return apiError(c, 404, 'not_found', 'Issue not found');
-
-  const summary = await toSummary(c.env, row, fresh.status);
   return c.json<GetIssueResponse>({
     issue: {
-      ...summary,
+      ...(await toSummary(c.env, row)),
       notes: row.notes,
       contextUrl: await signedScreenshotUrl(c.env, row.context_key),
       env: JSON.parse(row.env),
-      comments: fresh.comments,
+      comments: (await listComments(c.env, project, row)).map(toComment),
     },
   });
 });
 
-type ActionBody = { name: string; text: string };
+type ActionBody = { name: string; email: string; text: string };
 
 /** Parse a widget action body: { reporter, text? }. Returns an error response or the cleaned values. */
 async function actionBody(c: Context<AppEnv>, needText: boolean): Promise<ActionBody | Response> {
@@ -330,23 +256,11 @@ async function actionBody(c: Context<AppEnv>, needText: boolean): Promise<Action
     text = body.text.trim();
     if (text.length > 5000) return apiError(c, 400, 'bad_request', 'text must be at most 5000 characters');
   }
-  return { name: commentAuthorName((body.reporter as { name: string }).name), text };
+  const reporter = body.reporter as { name: string; email: string };
+  return { name: commentAuthorName(reporter.name), email: reporter.email.trim(), text };
 }
 
-/** Move the issue's card, record the new status and post a widget comment. */
-async function widgetAction(c: Context<AppEnv>, row: IssueRow, listId: string, status: IssueStatus, comment: string) {
-  const project = c.var.project;
-  try {
-    const trello = await trelloForProject(c.env, project);
-    await trello.moveCard(row.trello_card_id, listId);
-    const now = nowIso();
-    await c.env.DB.prepare('UPDATE issues SET status = ?, updated_at = ? WHERE id = ?').bind(status, now, row.id).run();
-    await trello.addComment(row.trello_card_id, comment);
-  } catch (e) {
-    return trelloFailure(c, project, e);
-  }
-  return c.json<IssueActionResponse>({ issue: await toSummary(c.env, row, status) });
-}
+const widgetComment = (body: ActionBody, text: string): NewComment => ({ via: 'widget', author: body.name, email: body.email, text });
 
 app.post('/:id/confirm', requireProject, async (c) => {
   const project = c.var.project;
@@ -355,9 +269,9 @@ app.post('/:id/confirm', requireProject, async (c) => {
   const body = await actionBody(c, false);
   if (body instanceof Response) return body;
   if (row.status !== 'review') return apiError(c, 409, 'bad_request', `Only issues in review can be confirmed (this one is ${row.status})`);
-  const doneListId = (JSON.parse(project.done_list_ids) as string[])[0];
-  if (!doneListId) return apiError(c, 400, 'bad_request', 'This project has no done list');
-  return widgetAction(c, row, doneListId, 'resolved', widgetCommentText(body.name, '✅ Confirmed fixed'));
+  if (hasTrello(project) && !(JSON.parse(project.done_list_ids) as string[])[0]) return apiError(c, 400, 'bad_request', 'This project has no done list');
+  const updated = await setStatus(c.env, project, row, 'resolved', { comment: widgetComment(body, '✅ Confirmed fixed') });
+  return c.json<IssueActionResponse>({ issue: await toSummary(c.env, updated) });
 });
 
 app.post('/:id/reopen', requireProject, async (c) => {
@@ -369,7 +283,8 @@ app.post('/:id/reopen', requireProject, async (c) => {
   if (row.status !== 'review' && row.status !== 'resolved') {
     return apiError(c, 409, 'bad_request', `Only issues in review or resolved can be reopened (this one is ${row.status})`);
   }
-  return widgetAction(c, row, project.new_list_id, 'new', widgetCommentText(body.name, `❌ Still broken: ${body.text}`));
+  const updated = await setStatus(c.env, project, row, 'new', { comment: widgetComment(body, `❌ Still broken: ${body.text}`) });
+  return c.json<IssueActionResponse>({ issue: await toSummary(c.env, updated) });
 });
 
 export default app;

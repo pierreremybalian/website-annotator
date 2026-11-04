@@ -11,6 +11,7 @@ import webhook from './routes/webhook';
 import dev from './routes/dev';
 import agent from './routes/agent';
 import cli from './routes/cli';
+import { scheduled } from './cron';
 
 const app = new Hono<AppEnv>();
 
@@ -33,4 +34,7 @@ app.onError((err, c) => {
   return c.json<ApiError>({ error: 'Internal error', code: 'internal' }, 500);
 });
 
-export default app;
+export default {
+  fetch: app.fetch,
+  scheduled: (_event: ScheduledController, env: AppEnv['Bindings'], ctx: ExecutionContext) => ctx.waitUntil(scheduled(env)),
+} satisfies ExportedHandler<AppEnv['Bindings']>;

@@ -1,7 +1,8 @@
 // Agent API (/v1/agent/*): what the `annotate` CLI calls on behalf of a coding agent.
 // Auth is a per-project agent token (requireAgent). Issues are addressed by their per-project NUMBER.
-// Claim moves the card to the "In progress" list, release puts it back, and resolve (after the agent has
-// verified the fix live) moves it to Done. Anyone can reopen it from the pin or Trello.
+// Claim sets the issue in progress, release puts it back to new, and resolve (after the agent has verified
+// the fix live) marks it resolved. Projects that sync to Trello see the same moves on the board (src/sync.ts).
+// Anyone can reopen an issue from the pin, the dashboard or Trello.
 
 import { Hono, type Context } from 'hono';
 import type {
@@ -16,15 +17,14 @@ import type {
   IssueStatus,
 } from '@annotate/shared';
 import type { AppEnv, Env } from '../env';
-import { nowIso, type IssueRow, type ProjectRow } from '../db';
+import { hasTrello, nowIso, type IssueRow, type ProjectRow } from '../db';
 import { apiError } from '../auth';
 import { requireAgent } from '../agent-auth';
-import { trelloForProject } from '../crypto';
 import { signedScreenshotUrl } from '../sign';
 import { normalizeUrl } from '../url';
-import { agentCommentText, commentAuthorName } from '../card';
-import { ensureProgressList } from '../progress';
-import { refreshFromTrello, trelloFailure } from './issues';
+import { commentAuthorName, toComment } from '../card';
+import { publicBase } from '../connect/util';
+import { addComment, listComments, setStatus, type NewComment } from '../tracker';
 
 const STATUSES: readonly IssueStatus[] = ['new', 'in_progress', 'review', 'resolved', 'archived'];
 const STATUS_FILTERS: Record<string, readonly IssueStatus[] | null> = {
@@ -55,7 +55,7 @@ function parseJson<T>(s: string | null | undefined, fallback: T): T {
 const leaseActive = (row: Pick<IssueRow, 'claimed_by' | 'claimed_until'>, now = Date.now()) =>
   !!row.claimed_by && row.claimed_until !== null && row.claimed_until > now;
 
-async function toAgentIssue(env: Env, row: IssueRow, status: IssueStatus = row.status): Promise<AgentIssue> {
+export async function toAgentIssue(env: Env, row: IssueRow): Promise<AgentIssue> {
   const anchor = parseJson<Partial<Anchor> | null>(row.anchor, null);
   const context = parseJson<IssueContext | null>(row.context, null);
   const active = leaseActive(row);
@@ -64,7 +64,7 @@ async function toAgentIssue(env: Env, row: IssueRow, status: IssueStatus = row.s
     id: row.id,
     number: row.number,
     title: row.title,
-    status,
+    status: row.status,
     pageUrl: row.page_url_raw,
     notes: row.notes,
     reporterName: row.reporter_name,
@@ -97,25 +97,30 @@ async function loadIssue(c: Ctx): Promise<IssueRow | Response> {
   return row ?? apiError(c, 404, 'not_found', `Issue #${number} not found`);
 }
 
-/**
- * The full issue as AgentIssueResponse, re-read from D1 and refreshed from Trello (status self-heal +
- * comments).
- */
-async function respondDetail(c: Ctx, number: number, project: ProjectRow = c.var.project, status: 200 | 201 = 200) {
-  const row = await issueByNumber(c.env, project.id, number);
-  if (!row) return apiError(c, 404, 'not_found', `Issue #${number} not found`);
-  const fresh = await refreshFromTrello(c.env, project, row);
-  if (!fresh) return apiError(c, 404, 'not_found', `Issue #${number} no longer exists in Trello`);
-  const issue: AgentIssueDetail = {
-    ...(await toAgentIssue(c.env, row, fresh.status)),
+/** Everything about an issue: the agent detail shape, comments oldest first. */
+export async function issueDetail(env: Env, project: ProjectRow, row: IssueRow): Promise<AgentIssueDetail> {
+  return {
+    ...(await toAgentIssue(env, row)),
     anchor: JSON.parse(row.anchor) as Anchor,
     env: JSON.parse(row.env) as AgentIssueDetail['env'],
     context: parseJson<IssueContext | null>(row.context, null),
-    comments: fresh.comments,
+    comments: (await listComments(env, project, row)).map(toComment),
     resolution: row.resolution,
   };
-  return c.json<AgentIssueResponse>({ issue }, status);
 }
+
+/** The full issue as AgentIssueResponse, re-read from D1. */
+async function respondDetail(c: Ctx, number: number, status: 200 | 201 = 200) {
+  const row = await issueByNumber(c.env, c.var.project.id, number);
+  if (!row) return apiError(c, 404, 'not_found', `Issue #${number} not found`);
+  return c.json<AgentIssueResponse>({ issue: await issueDetail(c.env, c.var.project, row) }, status);
+}
+
+const agentComment = (author: string | undefined, text: string): NewComment => ({ via: 'agent', author: commentAuthorName(author ?? '', 'Agent'), text });
+
+/** Projects without a Trello board are on the dashboard instead; old CLIs print these without a null check. */
+export const boardName = (project: ProjectRow) => project.trello_board_name ?? project.name;
+export const boardUrl = (env: Env, project: ProjectRow) => project.trello_board_url ?? `${publicBase(env)}/app/p/${project.id}`;
 
 async function jsonBody(c: Ctx): Promise<Body | Response> {
   let body: unknown;
@@ -155,8 +160,8 @@ app.get('/project', async (c) => {
   return c.json<AgentProject>({
     name: project.name,
     projectKey: project.public_key,
-    boardName: project.trello_board_name,
-    boardUrl: project.trello_board_url,
+    boardName: boardName(project),
+    boardUrl: boardUrl(c.env, project),
     origins: storedOrigins(project),
     counts,
   });
@@ -235,20 +240,10 @@ app.post('/issues/:number/claim', async (c) => {
   }
 
   if (!renewal) {
-    try {
-      const trello = await trelloForProject(c.env, project);
-      if (row.status === 'new') {
-        await trello.moveCard(row.trello_card_id, await ensureProgressList(c.env, project, trello));
-        await c.env.DB.prepare("UPDATE issues SET status = 'in_progress' WHERE id = ?").bind(row.id).run();
-      }
-      await trello.addComment(row.trello_card_id, `**${agent}** (via agent): 🤖 Working on this`);
-    } catch (e) {
-      // Undo the lease (if it's still the one we set) so a failed claim leaves nothing behind.
-      await c.env.DB.prepare('UPDATE issues SET claimed_by = ?, claimed_until = ? WHERE id = ? AND claimed_by = ? AND claimed_until = ?')
-        .bind(row.claimed_by, row.claimed_until, row.id, agent, until)
-        .run();
-      return trelloFailure(c, project, e);
-    }
+    // The claim comment is how a watcher (annotate watch) can tell the agent got started.
+    const comment = agentComment(agent, '🤖 Working on this');
+    if (row.status === 'new') await setStatus(c.env, project, row, 'in_progress', { comment });
+    else await addComment(c.env, project, row, comment);
   }
   return respondDetail(c, row.number);
 });
@@ -257,20 +252,10 @@ app.post('/issues/:number/release', async (c) => {
   const project = c.var.project;
   const row = await loadIssue(c);
   if (row instanceof Response) return row;
-  let status = row.status;
-  // Back to the new list, unless someone has moved the card out of "In progress" since the claim.
-  if (status === 'in_progress' && project.progress_list_id) {
-    try {
-      const trello = await trelloForProject(c.env, project);
-      if ((await trello.getCard(row.trello_card_id))?.idList === project.progress_list_id) {
-        await trello.moveCard(row.trello_card_id, project.new_list_id);
-        status = 'new';
-      }
-    } catch (e) {
-      return trelloFailure(c, project, e);
-    }
-  }
-  await c.env.DB.prepare('UPDATE issues SET status = ?, claimed_by = NULL, claimed_until = NULL, updated_at = ? WHERE id = ?').bind(status, nowIso(), row.id).run();
+  // Back to new, unless someone has moved its card out of "In progress" since the claim.
+  const movedAway = hasTrello(project) && !!row.trello_list_id && !!project.progress_list_id && row.trello_list_id !== project.progress_list_id;
+  if (row.status === 'in_progress' && !movedAway) await setStatus(c.env, project, row, 'new', { clearClaim: true });
+  else await c.env.DB.prepare('UPDATE issues SET claimed_by = NULL, claimed_until = NULL, updated_at = ? WHERE id = ?').bind(nowIso(), row.id).run();
   return respondDetail(c, row.number);
 });
 
@@ -285,13 +270,8 @@ app.post('/issues/:number/comments', async (c) => {
   const author = strField(body, 'author', { max: MAX_NAME });
   if (isErr(author)) return apiError(c, 400, 'bad_request', author.error);
 
-  try {
-    const trello = await trelloForProject(c.env, project);
-    await trello.addComment(row.trello_card_id, agentCommentText(author, text!));
-  } catch (e) {
-    return trelloFailure(c, project, e);
-  }
-  return respondDetail(c, row.number, project, 201);
+  await addComment(c.env, project, row, agentComment(author, text!));
+  return respondDetail(c, row.number, 201);
 });
 
 app.post('/issues/:number/resolve', async (c) => {
@@ -307,20 +287,10 @@ app.post('/issues/:number/resolve', async (c) => {
   const author = strField(body, 'author', { max: MAX_NAME });
   if (isErr(author)) return apiError(c, 400, 'bad_request', author.error);
 
-  const doneListId = parseJson<string[]>(project.done_list_ids, [])[0];
-  if (!doneListId) return apiError(c, 400, 'bad_request', 'This project has no done list');
+  if (hasTrello(project) && !parseJson<string[]>(project.done_list_ids, [])[0]) return apiError(c, 400, 'bad_request', 'This project has no done list');
 
-  try {
-    const trello = await trelloForProject(c.env, project);
-    await trello.moveCard(row.trello_card_id, doneListId);
-    await c.env.DB.prepare("UPDATE issues SET status = 'resolved', resolution = ?, claimed_by = NULL, claimed_until = NULL, updated_at = ? WHERE id = ?")
-      .bind(note!, nowIso(), row.id)
-      .run();
-    const commitLine = commit ? `\nCommit: ${commit.replace(/\s+/g, ' ')}` : '';
-    await trello.addComment(row.trello_card_id, agentCommentText(author, `✅ Fixed: ${note!}${commitLine}`));
-  } catch (e) {
-    return trelloFailure(c, project, e);
-  }
+  const commitLine = commit ? `\nCommit: ${commit.replace(/\s+/g, ' ')}` : '';
+  await setStatus(c.env, project, row, 'resolved', { resolution: note!, clearClaim: true, comment: agentComment(author, `✅ Fixed: ${note!}${commitLine}`) });
   return respondDetail(c, row.number);
 });
 
@@ -335,14 +305,7 @@ app.post('/issues/:number/reopen', async (c) => {
   const author = strField(body, 'author', { max: MAX_NAME });
   if (isErr(author)) return apiError(c, 400, 'bad_request', author.error);
 
-  try {
-    const trello = await trelloForProject(c.env, project);
-    await trello.moveCard(row.trello_card_id, project.new_list_id);
-    await c.env.DB.prepare("UPDATE issues SET status = 'new', updated_at = ? WHERE id = ?").bind(nowIso(), row.id).run();
-    await trello.addComment(row.trello_card_id, agentCommentText(author, `🔁 Reopened: ${note!}`));
-  } catch (e) {
-    return trelloFailure(c, project, e);
-  }
+  await setStatus(c.env, project, row, 'new', { comment: agentComment(author, `🔁 Reopened: ${note!}`) });
   return respondDetail(c, row.number);
 });
 
@@ -350,7 +313,7 @@ app.post('/issues/:number/reopen', async (c) => {
 // Allowed origins (where the widget may run)
 
 /** "https://example.com" for an http(s) URL or origin, else null. */
-function canonicalOrigin(raw: string): string | null {
+export function canonicalOrigin(raw: string): string | null {
   try {
     const u = new URL(raw.trim());
     return u.protocol === 'http:' || u.protocol === 'https:' ? u.origin : null;
@@ -359,13 +322,13 @@ function canonicalOrigin(raw: string): string | null {
   }
 }
 
-function storedOrigins(project: Pick<ProjectRow, 'allowed_origins'>): string[] {
+export function storedOrigins(project: Pick<ProjectRow, 'allowed_origins'>): string[] {
   const list = parseJson<unknown>(project.allowed_origins, []);
   return Array.isArray(list) ? list.filter((o): o is string => typeof o === 'string') : [];
 }
 
 /** Canonical, deduped form of a list of origins (unparseable entries dropped). */
-const cleanOrigins = (list: string[]) => [...new Set(list.map(canonicalOrigin).filter((o): o is string => o !== null))];
+export const cleanOrigins = (list: string[]) => [...new Set(list.map(canonicalOrigin).filter((o): o is string => o !== null))];
 
 async function originParam(c: Ctx): Promise<string | Response> {
   let raw: unknown = c.req.query('origin');

@@ -1,9 +1,11 @@
-// The Trello list a card sits in while an agent works on it ("In progress"). Found or created lazily, the
-// first time an agent claims an issue, and remembered in projects.progress_list_id.
+// The Trello lists for statuses a board may not have yet: "In progress" (an agent is working on the issue)
+// and "Ready for review". Found or created lazily, the first time an issue gets that status, and remembered
+// in projects.progress_list_id / review_list_id.
 
 import type { Env } from './env';
-import { nowIso, type ProjectRow } from './db';
+import { nowIso, type ProjectRow, type TrelloProject } from './db';
 import type { Trello, TrelloList } from './trello';
+import { posBefore, REVIEW_LIST_NAME, REVIEW_RE } from './connect/util';
 
 export const PROGRESS_LIST_NAME = 'In progress';
 /** Names that already mean "someone is working on it". */
@@ -34,11 +36,28 @@ export function progressListPos(project: Pick<ProjectRow, 'new_list_id'>, lists:
  * whose name looks like in-progress, else a new "In progress" list just after the new list.
  * Persists projects.progress_list_id when it changes. Trello errors propagate.
  */
-export async function ensureProgressList(env: Env, project: ProjectRow, trello: Trello): Promise<string> {
+export async function ensureProgressList(env: Env, project: TrelloProject, trello: Trello): Promise<string> {
   const lists = await trello.lists(project.trello_board_id);
   const id = findProgressList(project, lists)?.id ?? (await trello.createList(project.trello_board_id, PROGRESS_LIST_NAME, progressListPos(project, lists))).id;
   if (id !== project.progress_list_id) {
     await env.DB.prepare('UPDATE projects SET progress_list_id = ?, updated_at = ? WHERE id = ?').bind(id, nowIso(), project.id).run();
+  }
+  return id;
+}
+
+/**
+ * The project's review list id: the stored one if it still exists, else a review-like list that isn't the new
+ * or a done list, else a new "Ready for review" list just before the first done list. Persists review_list_id.
+ */
+export async function ensureReviewList(env: Env, project: TrelloProject, trello: Trello): Promise<string> {
+  const lists = await trello.lists(project.trello_board_id);
+  const done = JSON.parse(project.done_list_ids) as string[];
+  const id =
+    lists.find((l) => l.id === project.review_list_id)?.id ??
+    byPos(lists).find((l) => REVIEW_RE.test(l.name) && l.id !== project.new_list_id && !done.includes(l.id))?.id ??
+    (await trello.createList(project.trello_board_id, REVIEW_LIST_NAME, posBefore(lists, done))).id;
+  if (id !== project.review_list_id) {
+    await env.DB.prepare('UPDATE projects SET review_list_id = ?, updated_at = ? WHERE id = ?').bind(id, nowIso(), project.id).run();
   }
   return id;
 }

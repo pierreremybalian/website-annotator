@@ -85,7 +85,8 @@ export interface CreateIssueMeta {
 export interface CreateIssueResponse {
   id: string;
   number: number;
-  shortUrl: string;
+  /** Trello card short URL; null when the project doesn't sync to Trello (or the card isn't created yet). */
+  shortUrl: string | null;
 }
 
 export interface IssueSummary {
@@ -99,8 +100,8 @@ export interface IssueSummary {
   createdAt: string;
   /** Absolute, signed URL to the selection image (usable directly in <img src>). */
   screenshotUrl: string;
-  /** Trello card short URL. */
-  shortUrl: string;
+  /** Trello card short URL; null when the issue has no card. */
+  shortUrl: string | null;
 }
 
 export interface Comment {
@@ -111,8 +112,8 @@ export interface Comment {
   createdAt: string;
   /** True when posted from the widget (author is then the reporter name, not the Trello member). */
   viaWidget: boolean;
-  /** 0.2: where the comment came from. Optional for backward compatibility. */
-  via?: 'widget' | 'agent' | 'trello';
+  /** 0.2: where the comment came from ('app' = the dashboard, 0.3). Optional for backward compatibility. */
+  via?: 'widget' | 'agent' | 'trello' | 'app';
 }
 
 export interface IssueDetail extends IssueSummary {
@@ -295,7 +296,8 @@ export interface AgentIssue {
   reporterName: string;
   createdAt: string;
   updatedAt: string;
-  shortUrl: string;
+  /** Trello card short URL; null when the issue has no card. */
+  shortUrl: string | null;
   claimedBy: string | null;
   /** ISO 8601; null when not claimed or the lease expired. */
   claimedUntil: string | null;

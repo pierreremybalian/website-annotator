@@ -251,7 +251,7 @@ app.get('/lists', async (c) => {
   if (project && project.trello_board_id === board.id) {
     const ids = new Set(lists.map((l) => l.id));
     const done = parseStringArray(project.done_list_ids).find((id) => ids.has(id));
-    if (ids.has(project.new_list_id) && done && done !== project.new_list_id) {
+    if (project.new_list_id && ids.has(project.new_list_id) && done && done !== project.new_list_id) {
       const r = project.review_list_id;
       const review = r && ids.has(r) && r !== project.new_list_id && r !== done ? r : defaultReviewList(lists, project.new_list_id, done);
       defaults = { newListId: project.new_list_id, doneListId: done, reviewListId: review };
@@ -476,9 +476,10 @@ async function linkableProjects(env: Env, boards: TrelloBoard[]): Promise<Linkab
   const { results } = await env.DB.prepare('SELECT id, name, trello_board_id, trello_board_name, allowed_origins FROM projects ORDER BY name COLLATE NOCASE, created_at').all<
     Pick<ProjectRow, 'id' | 'name' | 'trello_board_id' | 'trello_board_name' | 'allowed_origins'>
   >();
-  return results
-    .filter((p) => byId.has(p.trello_board_id))
-    .map((p) => ({ id: p.id, name: p.name, boardName: byId.get(p.trello_board_id)?.name ?? p.trello_board_name, origins: parseStringArray(p.allowed_origins) }));
+  return results.flatMap((p) => {
+    const board = p.trello_board_id ? byId.get(p.trello_board_id) : undefined;
+    return board ? [{ id: p.id, name: p.name, boardName: board.name, origins: parseStringArray(p.allowed_origins) }] : [];
+  });
 }
 
 function newBoardName(s: ConnectSessionRow, siteUrl?: string | null) {
@@ -546,7 +547,7 @@ async function dropWebhook(env: Env, project: ProjectRow, fresh: Trello): Promis
   if (!project.webhook_id) return true;
   const clients: Trello[] = [];
   try {
-    clients.push(await trelloForProject(env, project));
+    if (project.trello_token_enc) clients.push(await trelloForProject(env, { trello_token_enc: project.trello_token_enc }));
   } catch {
     /* undecryptable token: fall through to the new one */
   }

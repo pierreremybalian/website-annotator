@@ -14,7 +14,7 @@ import {
 } from '@annotate/shared';
 import { encryptToken, sha256Hex } from '../src/crypto';
 import { randomId, type AgentTokenRow, type IssueRow, type ProjectRow } from '../src/db';
-import { MOCK_TOKEN, mockMoveCard, mockTrelloState, resetMockTrello, trello } from '../src/trello';
+import { MOCK_TOKEN, mockMoveCard, mockTrelloState, resetMockTrello } from '../src/trello';
 
 const BASE = 'http://worker.test';
 const ORIGIN = 'https://client.example';
@@ -124,8 +124,11 @@ const list = async (p: TestProject, query = '') => (await (await agent(p, `/issu
 
 const issueRow = (id: string) => env.DB.prepare('SELECT * FROM issues WHERE id = ?').bind(id).first<IssueRow>();
 const projectRow = (id: string) => env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id).first<ProjectRow>();
-const cardOf = async (id: string) => mockTrelloState().cards.get((await issueRow(id))!.trello_card_id)!;
-const commentsOf = async (id: string) => (mockTrelloState().comments.get((await issueRow(id))!.trello_card_id) ?? []).map((c) => c.data.text);
+const cardOf = async (id: string) => mockTrelloState().cards.get((await issueRow(id))!.trello_card_id!)!;
+const commentsOf = async (id: string) => (mockTrelloState().comments.get((await issueRow(id))!.trello_card_id!) ?? []).map((c) => c.data.text);
+/** A card dragged to another list in Trello (the fake board delivers the webhook). */
+const dragCard = async (id: string, listId: string) =>
+  expect((await SELF.fetch(`${BASE}/dev/move-card`, { method: 'POST', body: JSON.stringify({ cardId: (await issueRow(id))!.trello_card_id, listId }) })).status).toBe(200);
 const setStatus = (id: string, status: string) => env.DB.prepare('UPDATE issues SET status = ? WHERE id = ?').bind(status, id).run();
 
 beforeEach(() => resetMockTrello());
@@ -260,10 +263,10 @@ describe('GET /v1/agent/issues/:number', () => {
     expect(await detail(p, 1)).toMatchObject({ context: null, sources: [] });
   });
 
-  it('heals the status from Trello', async () => {
+  it('follows card moves made in Trello', async () => {
     const p = await createProject();
     const created = await createIssue(p);
-    mockMoveCard((await issueRow(created.id))!.trello_card_id, 'list-2');
+    await dragCard(created.id, 'list-2');
     expect((await detail(p, 1)).status).toBe('in_progress');
     expect((await issueRow(created.id))!.status).toBe('in_progress');
   });
@@ -337,7 +340,7 @@ describe('claim / release', () => {
     const created = await createIssue(p);
     await post(p, '/issues/1/claim', { agent: 'a' });
     mockTrelloState().lists.set('list-blocked', { id: 'list-blocked', name: 'Blocked', pos: 2500, idBoard: 'board-1' });
-    mockMoveCard((await issueRow(created.id))!.trello_card_id, 'list-blocked');
+    await dragCard(created.id, 'list-blocked');
     expect((await post(p, '/issues/1/release')).status).toBe(200);
     expect((await cardOf(created.id)).idList).toBe('list-blocked');
     expect((await issueRow(created.id))!.status).toBe('in_progress');
@@ -363,7 +366,7 @@ describe('claim / release', () => {
     const created = await createIssue(p);
     mockTrelloState().lists.set('list-qa', { id: 'list-qa', name: 'QA', pos: 2500, idBoard: 'board-1' });
     await env.DB.prepare("UPDATE projects SET review_list_id = 'list-qa' WHERE id = ?").bind(p.id).run();
-    mockMoveCard((await issueRow(created.id))!.trello_card_id, 'list-qa');
+    mockMoveCard((await issueRow(created.id))!.trello_card_id!, 'list-qa');
     await env.DB.prepare("UPDATE issues SET status = 'review' WHERE id = ?").bind(created.id).run();
     expect((await post(p, '/issues/1/claim', { agent: 'a' })).status).toBe(200);
     expect((await cardOf(created.id)).idList).toBe('list-qa');
@@ -385,14 +388,15 @@ describe('claim / release', () => {
     expect(await res.json<ApiError>()).toMatchObject({ code: 'bad_request' });
   });
 
-  it('rolls the lease back when Trello rejects the comment', async () => {
+  it('keeps the claim when Trello rejects the token, and leaves the moves for the cron', async () => {
     const p = await createProject();
     const created = await createIssue(p);
     await env.DB.prepare('UPDATE projects SET trello_token_enc = ? WHERE id = ?').bind(await encryptToken(env, 'bad-token'), p.id).run();
     const res = await post(p, '/issues/1/claim', { agent: 'a' });
-    expect(res.status).toBe(502);
-    expect(await res.json<ApiError>()).toMatchObject({ code: 'token_revoked' });
-    expect((await issueRow(created.id))!.claimed_by).toBeNull();
+    expect(res.status).toBe(200);
+    // The claim comment is there either way: it's how `annotate watch` sees that the agent started.
+    expect((await res.json<AgentIssueResponse>()).issue).toMatchObject({ claimedBy: 'a', status: 'in_progress', comments: [{ author: 'a', text: '🤖 Working on this', via: 'agent' }] });
+    expect(await issueRow(created.id)).toMatchObject({ claimed_by: 'a', trello_pending: 1 });
     expect((await projectRow(p.id))!.token_revoked).toBe(1);
   });
 });
@@ -412,14 +416,14 @@ describe('comments', () => {
       headers: { ...widgetHeaders(p), 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: 'Thanks!', reporter: { name: 'Jane Client', email: 'jane@client.example' } }),
     });
-    await trello(env, MOCK_TOKEN).addComment((await issueRow(created.id))!.trello_card_id, 'On it.');
+    await SELF.fetch(`${BASE}/dev/trello-comment`, { method: 'POST', body: JSON.stringify({ cardId: (await issueRow(created.id))!.trello_card_id, text: 'On it.', author: 'Sam Dev' }) });
 
     const { comments } = await detail(p, 1);
     expect(comments.map(({ author, text, via, viaWidget }) => ({ author, text, via, viaWidget }))).toEqual([
       { author: 'Claude', text: 'Found it in **Hero.astro**.\nFixing.', via: 'agent', viaWidget: false },
       { author: 'Agent', text: 'No author', via: 'agent', viaWidget: false },
       { author: 'Jane Client', text: 'Thanks!', via: 'widget', viaWidget: true },
-      { author: 'Mock User', text: 'On it.', via: 'trello', viaWidget: false },
+      { author: 'Sam Dev', text: 'On it.', via: 'trello', viaWidget: false },
     ]);
   });
 
@@ -477,21 +481,58 @@ describe('resolve', () => {
     expect(mockTrelloState().lists.size).toBe(3);
   });
 
-  it('502s with trello_error on a Trello failure and token_revoked on a 401', async () => {
+  it('resolves in Annotate when Trello fails, and keeps the push for the cron', async () => {
     const p = await createProject();
     const created = await createIssue(p);
     mockTrelloState().lists.delete('list-3');
     const res = await post(p, '/issues/1/resolve', { note: 'x' });
-    expect(res.status).toBe(502);
-    expect(await res.json<ApiError>()).toMatchObject({ code: 'trello_error' });
-    expect((await issueRow(created.id))!.status).toBe('new');
+    expect(res.status).toBe(200);
+    expect(await issueRow(created.id)).toMatchObject({ status: 'resolved', trello_pending: 1 });
+    expect((await projectRow(p.id))!.trello_error).toBeTruthy();
 
     const q = await createProject();
     await createIssue(q);
     await env.DB.prepare('UPDATE projects SET trello_token_enc = ? WHERE id = ?').bind(await encryptToken(env, 'bad-token'), q.id).run();
-    const revoked = await post(q, '/issues/1/resolve', { note: 'x' });
-    expect(revoked.status).toBe(502);
-    expect(await revoked.json<ApiError>()).toMatchObject({ code: 'token_revoked' });
+    expect((await post(q, '/issues/1/resolve', { note: 'x' })).status).toBe(200);
+    expect((await projectRow(q.id))!.token_revoked).toBe(1);
+  });
+});
+
+describe('projects without Trello', () => {
+  it('works the whole loop (claim, comment, release, resolve, reopen) without a single Trello call', async () => {
+    const seed = await (await SELF.fetch(`${BASE}/dev/seed?trello=0`, { method: 'POST' })).json<{ projectKey: string; accessKey: string; agentToken: string }>();
+    const p: TestProject = { id: 'dev-native', publicKey: seed.projectKey, accessKey: seed.accessKey, token: seed.agentToken };
+    const seq = mockTrelloState().seq;
+    expect((await post(p, '/origins', { origin: ORIGIN })).status).toBe(200);
+    await createIssue(p);
+    const n = (await list(p)).at(-1)!.number;
+
+    expect(await (await post(p, `/issues/${n}/claim`, { agent: 'claude' })).json<AgentIssueResponse>()).toMatchObject({ issue: { status: 'in_progress', claimedBy: 'claude', shortUrl: null } });
+    expect((await post(p, `/issues/${n}/comments`, { text: 'Looking' })).status).toBe(201);
+    expect((await (await post(p, `/issues/${n}/release`)).json<AgentIssueResponse>()).issue.status).toBe('new');
+    expect((await post(p, `/issues/${n}/claim`, { agent: 'claude' })).status).toBe(200);
+    const resolved = (await (await post(p, `/issues/${n}/resolve`, { note: 'Done', commit: 'abc' })).json<AgentIssueResponse>()).issue;
+    expect(resolved).toMatchObject({ status: 'resolved', resolution: 'Done', claimedBy: null });
+    expect((await (await post(p, `/issues/${n}/reopen`, { note: 'Nope' })).json<AgentIssueResponse>()).issue.status).toBe('new');
+    expect((await detail(p, n)).comments.map((c) => c.text)).toEqual([
+      '🤖 Working on this',
+      'Looking',
+      '🤖 Working on this',
+      '✅ Fixed: Done\nCommit: abc',
+      '🔁 Reopened: Nope',
+    ]);
+    expect(mockTrelloState().seq).toBe(seq);
+
+    const project = await (await agent(p, '/project')).json<AgentProject>();
+    expect(project).toMatchObject({ name: 'Dev site (no Trello)', boardName: 'Dev site (no Trello)', boardUrl: 'http://localhost:8787/app/p/dev-native' });
+  });
+
+  it('refuses a revoked agent token', async () => {
+    const p = await createProject();
+    await env.DB.prepare("UPDATE agent_tokens SET revoked_at = '2026-11-01T00:00:00Z' WHERE project_id = ?").bind(p.id).run();
+    const res = await agent(p, '/project');
+    expect(res.status).toBe(401);
+    expect((await res.json<ApiError>()).error).toContain('revoked');
   });
 });
 

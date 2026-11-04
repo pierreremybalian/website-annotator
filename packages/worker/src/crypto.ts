@@ -1,5 +1,4 @@
 import type { Env } from './env';
-import type { ProjectRow } from './db';
 import { trello, type Trello } from './trello';
 
 const b64 = (buf: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -24,7 +23,7 @@ export async function decryptToken(env: Env, enc: string): Promise<string> {
 }
 
 /** Trello client authenticated as the member who connected this project. */
-export async function trelloForProject(env: Env, project: Pick<ProjectRow, 'trello_token_enc'>): Promise<Trello> {
+export async function trelloForProject(env: Env, project: { trello_token_enc: string }): Promise<Trello> {
   return trello(env, await decryptToken(env, project.trello_token_enc));
 }
 

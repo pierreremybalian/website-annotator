@@ -1,30 +1,29 @@
-// Trello text formatting: card name and description for a new issue, and widget comments.
+// Trello text formatting: card name and description for a new issue, and comment text. A comment that
+// starts in Annotate goes to Trello as "**Name** (via widget|agent|Annotate): text", so it can be decoded back.
 
 import type { CaptureEnv, Comment, ConsoleEntry, CreateIssueMeta, SourceHint } from '@annotate/shared';
+import type { CommentRow, CommentVia } from './db';
 import type { TrelloComment } from './trello';
 
-const VIA = /^\*\*(.+?)\*\* \(via (widget|agent)\): ([\s\S]*)$/;
+const VIA = /^\*\*(.+?)\*\* \(via (widget|agent|Annotate)\): ([\s\S]*)$/;
+const VIA_LABEL = { widget: 'widget', agent: 'agent', app: 'Annotate' } as const;
 
 /** Name as it appears in a comment prefix; '*' and newlines would break parsing it back. */
 export const commentAuthorName = (name: string, fallback = 'Anonymous') => name.replace(/[*\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() || fallback;
 
-/** Trello comment text for a comment posted from the widget. */
-export const widgetCommentText = (name: string, text: string) => `**${commentAuthorName(name)}** (via widget): ${text}`;
+/** Trello comment text for a comment that started in Annotate. */
+export const trelloCommentText = (via: Exclude<CommentVia, 'trello'>, author: string, text: string) => `**${commentAuthorName(author)}** (via ${VIA_LABEL[via]}): ${text}`;
 
-/** Trello comment text for a comment posted through the agent API (author defaults to "Agent"). */
-export const agentCommentText = (name: string | undefined, text: string) => `**${commentAuthorName(name ?? '', 'Agent')}** (via agent): ${text}`;
-
-/** Map a Trello comment to the API shape, recognising comments posted from the widget or by an agent. */
-export function parseComment(tc: TrelloComment): Comment {
+/** Who wrote a Trello comment and from where: our own prefix when it has one, else the Trello member. */
+export function decodeComment(tc: { memberCreator?: Partial<TrelloComment['memberCreator']>; data?: { text?: string } }): { via: CommentVia; author: string; text: string } {
   const text = tc.data?.text ?? '';
   const m = VIA.exec(text);
-  if (m) {
-    const via = m[2] as 'widget' | 'agent';
-    return { id: tc.id, author: m[1]!, text: m[3]!, createdAt: tc.date, viaWidget: via === 'widget', via };
-  }
-  const author = tc.memberCreator?.fullName || tc.memberCreator?.username || 'Trello user';
-  return { id: tc.id, author, text, createdAt: tc.date, viaWidget: false, via: 'trello' };
+  if (m) return { via: m[2] === 'Annotate' ? 'app' : (m[2] as 'widget' | 'agent'), author: m[1]!, text: m[3]! };
+  return { via: 'trello', author: tc.memberCreator?.fullName || tc.memberCreator?.username || 'Trello user', text };
 }
+
+/** A stored comment in the API shape. */
+export const toComment = (r: CommentRow): Comment => ({ id: r.id, author: r.author_name, text: r.text, createdAt: r.created_at, viaWidget: r.via === 'widget', via: r.via });
 
 /** One source hint as a short, grep-able label: "acf/hero", "src/components/Hero.astro:12". */
 export function sourceLabel(h: SourceHint): string {

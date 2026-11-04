@@ -8,6 +8,8 @@ export default defineConfig(async () => {
       cloudflareTest({
         wrangler: { configPath: './wrangler.toml' },
         miniflare: {
+          // A spare database for migration tests (test/migration.test.ts), which apply migrations step by step.
+          d1Databases: { MIGRATION_DB: 'migration-test' },
           bindings: {
             TEST_MIGRATIONS: migrations,
             TRELLO_MOCK: '1',

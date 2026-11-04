@@ -4,7 +4,8 @@ import type { AppEnv } from '../env';
 import { nowIso } from '../db';
 import { apiError } from '../auth';
 import { encryptToken, sha256Hex } from '../crypto';
-import { MOCK_TOKEN, mockMoveCard, mockTrelloState } from '../trello';
+import { MOCK_TOKEN, mockAddComment, mockMoveCard, mockTrelloState } from '../trello';
+import { ingestAction } from '../ingest';
 
 export const DEV_PROJECT = {
   id: 'dev',
@@ -20,6 +21,19 @@ export const DEV_PROJECT = {
   agentToken: 'at_dev-token',
 };
 
+/** A dev project without a Trello board: `/dev/seed?trello=0`. */
+export const DEV_NATIVE_PROJECT = {
+  id: 'dev-native',
+  publicKey: 'dev-native-project',
+  accessKey: 'dev-native-access',
+  name: 'Dev site (no Trello)',
+  agentToken: 'at_dev-native-token',
+};
+
+/** What the fake board's webhook would deliver for a change made in Trello. */
+const deliver = (c: Context<AppEnv>, cardId: string, action: Record<string, unknown>) =>
+  ingestAction(c.env, DEV_PROJECT.boardId, { id: `action-dev-${Date.now()}`, date: new Date().toISOString(), ...action, data: { card: { id: cardId }, ...(action.data as object) } });
+
 const app = new Hono<AppEnv>();
 
 app.use('*', async (c, next) => {
@@ -27,7 +41,23 @@ app.use('*', async (c, next) => {
   await next();
 });
 
+async function seedNative(c: Context<AppEnv>) {
+  const p = DEV_NATIVE_PROJECT;
+  const now = nowIso();
+  await c.env.DB.prepare(
+    `INSERT INTO projects (id, name, public_key, access_key, allowed_origins, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (public_key) DO UPDATE SET name = excluded.name, access_key = excluded.access_key, allowed_origins = excluded.allowed_origins, updated_at = excluded.updated_at`,
+  )
+    .bind(p.id, p.name, p.publicKey, p.accessKey, JSON.stringify(DEV_PROJECT.allowedOrigins), now, now)
+    .run();
+  await c.env.DB.prepare(`INSERT OR REPLACE INTO agent_tokens (id, project_id, token_hash, label, created_at) VALUES ('dev-native-agent', ?, ?, 'dev', ?)`)
+    .bind(p.id, await sha256Hex(p.agentToken), now)
+    .run();
+  return c.json({ projectId: p.id, projectKey: p.publicKey, accessKey: p.accessKey, agentToken: p.agentToken, boardName: null, boardUrl: null, endpoint: c.env.PUBLIC_URL });
+}
+
 async function seed(c: Context<AppEnv>) {
+  if (c.req.query('trello') === '0') return seedNative(c);
   const p = DEV_PROJECT;
   const boardUrl = mockTrelloState().boards.get(p.boardId)?.url ?? 'https://trello.com/b/mock1/mock-board';
   const tokenEnc = await encryptToken(c.env, MOCK_TOKEN);
@@ -70,6 +100,17 @@ app.post('/move-card', async (c) => {
   if (!body.cardId || !body.listId) return apiError(c, 400, 'bad_request', 'cardId and listId are required');
   if (!mockTrelloState().cards.has(body.cardId)) return apiError(c, 404, 'not_found', 'Card not found');
   mockMoveCard(body.cardId, body.listId);
+  await deliver(c, body.cardId, { type: 'updateCard', data: { card: { id: body.cardId, idList: body.listId }, listAfter: { id: body.listId } } });
+  return c.json({ ok: true });
+});
+
+/** Test helper: a board member comments on the card in Trello. */
+app.post('/trello-comment', async (c) => {
+  const body = await c.req.json<{ cardId?: string; text?: string; author?: string }>().catch(() => ({}) as { cardId?: string; text?: string; author?: string });
+  if (!body.cardId || !body.text) return apiError(c, 400, 'bad_request', 'cardId and text are required');
+  if (!mockTrelloState().cards.has(body.cardId)) return apiError(c, 404, 'not_found', 'Card not found');
+  const tc = mockAddComment(body.cardId, body.text, { fullName: body.author ?? 'Trello Person', username: 'person' });
+  await deliver(c, body.cardId, { id: tc.id, type: 'commentCard', date: tc.date, memberCreator: tc.memberCreator, data: { text: tc.data.text } });
   return c.json({ ok: true });
 });
 
@@ -81,6 +122,7 @@ app.post('/delete-card', async (c) => {
   if (!state.cards.has(body.cardId)) return apiError(c, 404, 'not_found', 'Card not found');
   state.cards.delete(body.cardId);
   state.comments.delete(body.cardId);
+  await deliver(c, body.cardId, { type: 'deleteCard' });
   return c.json({ ok: true });
 });
 

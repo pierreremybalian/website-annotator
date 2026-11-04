@@ -65,6 +65,10 @@ export interface Trello {
   getCard(cardId: string): Promise<TrelloCard | null>;
   /** Move a card to another list (top of the list). */
   moveCard(cardId: string, idList: string): Promise<TrelloCard>;
+  /** Archive (closed) or unarchive a card. */
+  setClosed(cardId: string, closed: boolean): Promise<TrelloCard>;
+  /** Every card on the board, archived ones included: just where each one is. */
+  boardCards(boardId: string): Promise<Pick<TrelloCard, 'id' | 'idList' | 'closed'>[]>;
   /** Newest first, as Trello returns them. */
   getComments(cardId: string): Promise<TrelloComment[]>;
   addComment(cardId: string, text: string): Promise<TrelloComment>;
@@ -148,8 +152,14 @@ class HttpTrello implements Trello {
   moveCard(cardId: string, idList: string) {
     return this.req<TrelloCard>('PUT', `/cards/${cardId}`, { idList, pos: 'top' });
   }
+  setClosed(cardId: string, closed: boolean) {
+    return this.req<TrelloCard>('PUT', `/cards/${cardId}`, { closed: String(closed) });
+  }
+  boardCards(boardId: string) {
+    return this.req<Pick<TrelloCard, 'id' | 'idList' | 'closed'>[]>('GET', `/boards/${boardId}/cards/all`, { fields: 'idList,closed' });
+  }
   getComments(cardId: string) {
-    return this.req<TrelloComment[]>('GET', `/cards/${cardId}/actions`, { filter: 'commentCard', limit: '100' });
+    return this.req<TrelloComment[]>('GET', `/cards/${cardId}/actions`, { filter: 'commentCard', limit: '1000' });
   }
   addComment(cardId: string, text: string) {
     return this.req<TrelloComment>('POST', `/cards/${cardId}/actions/comments`, { text });
@@ -203,6 +213,13 @@ export function mockTrelloState(): Readonly<MockState> {
 export function mockMoveCard(cardId: string, idList: string) {
   const c = mock.cards.get(cardId);
   if (c) c.idList = idList;
+}
+
+/** Test/dev helper: a comment typed into Trello by a board member. */
+export function mockAddComment(cardId: string, text: string, member = { fullName: 'Trello Person', username: 'person' }): TrelloComment {
+  const comment: TrelloComment = { id: `action-${++mock.seq}-${Math.random().toString(36).slice(2, 8)}`, date: new Date().toISOString(), memberCreator: member, data: { text } };
+  mock.comments.set(cardId, [...(mock.comments.get(cardId) ?? []), comment]);
+  return comment;
 }
 
 class MockTrello implements Trello {
@@ -276,6 +293,19 @@ class MockTrello implements Trello {
     c.idList = idList;
     const { desc: _d, attachments: _a, ...pub } = c;
     return pub;
+  }
+  async setClosed(cardId: string, closed: boolean) {
+    this.auth();
+    const c = mock.cards.get(cardId);
+    if (!c) throw new TrelloError(404, 'card not found');
+    c.closed = closed;
+    const { desc: _d, attachments: _a, ...pub } = c;
+    return pub;
+  }
+  async boardCards(boardId: string) {
+    this.auth();
+    const lists = new Set([...mock.lists.values()].filter((l) => l.idBoard === boardId).map((l) => l.id));
+    return [...mock.cards.values()].filter((c) => lists.has(c.idList)).map(({ id, idList, closed }) => ({ id, idList, closed }));
   }
   async getComments(cardId: string) {
     this.auth();

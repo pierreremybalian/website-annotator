@@ -2,6 +2,7 @@ import { env, SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { hmac } from '../src/crypto';
 import { nowIso, randomId, type IssueRow } from '../src/db';
+import app from '../src/index';
 
 const URL_ = 'http://localhost:8787/trello/webhook'; // PUBLIC_URL + /trello/webhook
 const BOARD = 'wh-board';
@@ -52,6 +53,7 @@ async function send(payload: unknown, signature?: string) {
 }
 
 const action = (type: string, data: object, board = BOARD) => ({ model: { id: board }, action: { id: randomId(), type, data: { board: { id: board }, ...data } } });
+const dated = <T extends { action: object }>(payload: T, date: string) => ({ ...payload, action: { ...payload.action, date } });
 const moveTo = (list: string) => action('updateCard', { card: { id: cardId, idList: list }, listBefore: { id: NEW }, listAfter: { id: list }, old: { idList: NEW } });
 
 beforeEach(seed);
@@ -99,12 +101,44 @@ describe('trello webhook', () => {
     expect((await issue())!.status).toBe('resolved');
   });
 
-  it('deletes the issue and its screenshots when the card is deleted', async () => {
-    expect(await env.SCREENSHOTS.head(shotKey)).not.toBeNull();
+  it('archives and unlinks the issue when the card is deleted, keeping its screenshots', async () => {
     expect((await send(action('deleteCard', { card: { id: cardId, idShort: 1 } }))).status).toBe(200);
-    expect(await issue()).toBeNull();
-    expect(await env.SCREENSHOTS.head(shotKey)).toBeNull();
-    expect(await env.SCREENSHOTS.head(contextKey)).toBeNull();
+    expect(await issue()).toMatchObject({ status: 'archived', trello_card_id: null, trello_short_url: null });
+    expect(await env.SCREENSHOTS.head(shotKey)).not.toBeNull();
+    expect(await env.SCREENSHOTS.head(contextKey)).not.toBeNull();
+  });
+
+  it('ignores a move older than the latest status change (a late echo)', async () => {
+    await env.DB.prepare("UPDATE issues SET status = 'resolved', status_at = ?, trello_list_id = ? WHERE id = ?").bind(Date.parse('2026-11-01T12:00:00Z'), DONE, issueId).run();
+    await send(dated(moveTo(DOING), '2026-11-01T11:59:59Z'));
+    expect(await issue()).toMatchObject({ status: 'resolved', trello_list_id: DONE });
+    await send(dated(moveTo(NEW), '2026-11-01T12:00:05Z'));
+    expect(await issue()).toMatchObject({ status: 'new', trello_list_id: NEW, status_at: Date.parse('2026-11-01T12:00:05Z') });
+  });
+
+  it('stores comments made in Trello, and their edits and deletes', async () => {
+    const comment = action('commentCard', { card: { id: cardId }, text: 'Can you check mobile?' });
+    Object.assign(comment.action, { memberCreator: { fullName: 'Sam Dev', username: 'sam' }, date: '2026-11-01T10:00:00.000Z' });
+    await send(comment);
+    await send(comment); // Trello retries: still one
+    const rows = async () => (await env.DB.prepare('SELECT author_name, via, text, trello_action_id FROM comments WHERE issue_id = ?').bind(issueId).all()).results;
+    expect(await rows()).toEqual([{ author_name: 'Sam Dev', via: 'trello', text: 'Can you check mobile?', trello_action_id: comment.action.id }]);
+
+    await send(action('updateComment', { card: { id: cardId }, action: { id: comment.action.id, text: 'Can you check tablet?' } }));
+    expect((await rows())[0]).toMatchObject({ text: 'Can you check tablet?' });
+    await send(action('deleteComment', { card: { id: cardId }, action: { id: comment.action.id } }));
+    expect(await rows()).toEqual([]);
+  });
+
+  it('accepts signatures made for the Worker’s earlier URL', async () => {
+    const legacy = 'https://annotate.old.test/trello/webhook';
+    const body = JSON.stringify(moveTo(DONE));
+    const signed = (url: string) => hmac('SHA-1', 'mock-secret', body + url);
+    const call = (bindings: object, signature: string) =>
+      app.fetch(new Request(URL_, { method: 'POST', headers: { 'x-trello-webhook': signature }, body }), { ...env, ...bindings });
+    expect((await call({}, await signed(legacy))).status).toBe(401);
+    expect((await call({ LEGACY_PUBLIC_URL: 'https://annotate.old.test' }, await signed(legacy))).status).toBe(200);
+    expect((await issue())!.status).toBe('resolved');
   });
 
   it('archives the issue when the card moves to another board', async () => {
