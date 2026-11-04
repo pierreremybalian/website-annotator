@@ -4,6 +4,11 @@ account_id = "51f39b9c1946569858d6ff3b2aac2baa" # Pierre@baliandesign.com's Acco
 compatibility_date = "2026-08-15"
 compatibility_flags = ["nodejs_compat"]
 
+# The dashboard's address. workers.dev keeps working too: widget tags, the WP plugin and .annotate.json files point at it.
+routes = [{ pattern = "annotate.balian.dev", custom_domain = true }]
+# Routes turn workers.dev off unless it is asked for.
+workers_dev = true
+
 [assets]
 directory = "./public"
 binding = "ASSETS"
@@ -21,9 +26,6 @@ bucket_name = "annotate-screenshots"
 # Retries failed pushes to Trello, imports pre-0.3 comments and pulls one board per run (src/cron.ts).
 [triggers]
 crons = ["*/10 * * * *"]
-
-# The dashboard's address. workers.dev keeps working too: widget tags, the WP plugin and .annotate.json files point at it.
-routes = [{ pattern = "annotate.balian.dev", custom_domain = true }]
 
 [vars]
 # Public base URL of this Worker; used for Trello return_url, webhook callbacks and signed screenshot URLs.
