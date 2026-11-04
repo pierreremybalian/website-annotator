@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// End-to-end: real widget (Vite dev server) against the real Worker (wrangler dev, TRELLO_MOCK=1, local D1/R2).
+// End-to-end: real widget (Vite dev server) and dashboard (built, served by the Worker) against the real Worker
+// (wrangler dev, TRELLO_MOCK=1, local D1/R2).
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
@@ -9,7 +10,8 @@ export default defineConfig({
   use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 }, trace: 'retain-on-failure' },
   webServer: [
     {
-      command: 'pnpm --filter @annotate/worker db:migrate:local && pnpm --filter @annotate/worker dev --port 8787',
+      // The Worker serves the built dashboard at /app/.
+      command: 'pnpm --filter @annotate/dashboard build && pnpm --filter @annotate/worker db:migrate:local && pnpm --filter @annotate/worker dev --port 8787',
       url: 'http://localhost:8787/health',
       reuseExistingServer: true,
       timeout: 120_000,

@@ -19,6 +19,9 @@ All `/v1/*` calls send `X-Annotate-Project: pk_…` and `X-Annotate-Access: ak_�
 | `GET /v1/screenshots/<key>?exp&sig` | signed, expiring image URLs (an `<img>` can't send headers) |
 | `GET /v1/project` | connection status for the WP settings page |
 | `/v1/agent/*` | agent API for the CLI (below) |
+| `/v1/app/*` | dashboard API (below): session cookie, same-origin only, no CORS |
+| `/login`, `/login/start`, `/login/code`, `/login/verify`, `POST /logout` | email login (below) |
+| `/app/*` | the dashboard: static files, deep links answered with its `index.html` |
 | `POST /cli/sessions`, `POST /cli/sessions/:id/poll` | browser → CLI hand-off for `annotate connect` / `init` (below) |
 | `/connect/*` | the Connect Trello popup (below) |
 | `HEAD/POST /trello/webhook` | Trello webhook, verified with HMAC-SHA1 (`X-Trello-Webhook`) |
@@ -53,6 +56,27 @@ Used by the [`annotate` CLI](../cli/README.md). Authenticate with `Authorization
 | `POST /issues/:n/resolve` `{note, commit?, author?}` | card → first done list, status `resolved`, lease released. Agents call it only after checking the fix live |
 | `POST /issues/:n/reopen` `{note, author?}` | card → new list |
 | `GET / POST / DELETE /origins` `{origin}` | the sites allowed to load the widget (max 20) |
+
+## Email login and sessions
+
+`POST /login/start {email, next}` emails a 6-digit code and a link, valid once for 15 minutes. The code only works in the browser that asked for it (`__Host-annotate_login` cookie); 5 wrong tries kill it, and it's stored as an HMAC. Opening the link only shows a page; its button POSTs `/login/verify`, so mail scanners can't use it up. Either way the browser gets `__Host-annotate`, a random session cookie stored as a SHA-256, valid 30 days and sliding. Cookie-authenticated writes need a same-origin `Origin` header. Logins are rate-limited per address and per IP, and mail is capped per day (`MAIL_DAILY_CAP`). While `SIGNUP_MODE` isn't `open`, only people already invited get an email, with the same response either way.
+
+## Dashboard API (`/v1/app/*`)
+
+Every org, project and issue is loaded through `src/access.ts`, scoped to the caller's memberships. Anything out of reach answers 404.
+
+| Route | |
+|---|---|
+| `GET / PATCH /me` | user, orgs with the caller's role, whether they may create an org |
+| `POST /orgs`, `PATCH /orgs/:org` | create (open signup only) or rename (owners) |
+| `GET / POST /orgs/:org/members`, `PATCH / DELETE …/:userId` | list, invite by email (7-day link), change role or a client's projects, remove (revokes their agent keys). Only owners manage owners; an org keeps one |
+| `GET / POST /orgs/:org/projects` | projects the caller can see, with counts; create one (members and up) |
+| `GET / PATCH / DELETE /projects/:id` | settings: name, allowed origins, ignore query. Delete is admins only and removes issues and screenshots |
+| `GET /projects/:id/issues?status=board\|open\|all\|<status>` | the board |
+| `GET / PATCH /issues/:id`, `POST /issues/:id/comments` | detail, move (clients may only confirm or reopen), comment |
+| `GET / POST /projects/:id/tokens`, `DELETE …/:tokenId` | agent keys: create (returns `.annotate.json`, once), revoke |
+
+Roles: owner, admin and member see every project in the org. A client sees only the projects in `project_members` and can comment, confirm and reopen.
 
 ## CLI hand-off (`annotate connect` / `annotate init`)
 

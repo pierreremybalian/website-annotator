@@ -11,6 +11,7 @@ import { atLeast, orgRole, orgsFor } from '../access';
 import { DAY, hit } from '../rate-limit';
 import { MailError, sendMail, simpleHtml } from '../mail';
 import { createLoginToken, normalizeEmail, signupOpen, validEmail } from './auth';
+import projects from './app-projects';
 
 const ROLES: readonly Role[] = ['owner', 'admin', 'member', 'client'];
 const MAX_NAME = 100;
@@ -217,5 +218,7 @@ app.delete('/orgs/:org/members/:userId', async (c) => {
   ]);
   return c.json({ ok: true });
 });
+
+app.route('/', projects);
 
 export default app;

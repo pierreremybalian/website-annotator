@@ -1,0 +1,30 @@
+{
+  "name": "@annotate/dashboard",
+  "version": "0.2.0",
+  "private": true,
+  "author": "Pierre Balian (https://balian.dev)",
+  "homepage": "https://github.com/pierreremybalian/website-annotator#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pierreremybalian/website-annotator.git"
+  },
+  "bugs": "https://github.com/pierreremybalian/website-annotator/issues",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@annotate/shared": "workspace:*",
+    "preact": "^11.1.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "happy-dom": "^21.0.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "~4.1.12"
+  }
+}

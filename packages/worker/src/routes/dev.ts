@@ -33,6 +33,8 @@ async function seedOrg(c: Context<AppEnv>) {
     c.env.DB.prepare('INSERT OR IGNORE INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)').bind(DEV_USER.id, DEV_USER.email, DEV_USER.name, now),
     c.env.DB.prepare("INSERT OR IGNORE INTO memberships (org_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(DEV_ORG.id, DEV_USER.id, now),
     c.env.DB.prepare("UPDATE projects SET org_id = ? WHERE id IN ('dev', 'dev-native') AND org_id IS NULL").bind(DEV_ORG.id),
+    // Local test runs log in over and over: start each seeded run with fresh login limits.
+    c.env.DB.prepare('DELETE FROM rate_limits'),
   ]);
 }
 

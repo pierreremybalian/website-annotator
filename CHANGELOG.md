@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- **Dashboard** at `/app/` (`packages/dashboard`, Preact): projects, a board per project (drag cards between New / In progress / Ready for review / Resolved, archived on request), an issue drawer with screenshots, page, browser, source hints and the conversation, team management, and project settings (install snippet, activation link, allowed sites, agent keys, Trello status). It refreshes every 20 seconds. Served at https://annotate.balian.dev/app/.
+- **Accounts and organizations.** Log in with a code or link sent by email (Resend). Each agency is an org with owners, admins, members and clients, and a client sees only the projects picked for them. Invite-only for now (`SIGNUP_MODE`). Existing projects belong to Balian Design.
+- **Agent keys from the dashboard**: create one for a project and save the `.annotate.json` it gives you, with no Trello needed. Keys can be revoked, and removing someone from an org revokes theirs.
 - **`annotate watch`**: works a site's issues unattended. Each round it updates the checkout and picks the oldest open issue nobody has claimed. It runs a headless Claude Code session (`claude -p`) on the machine's Claude login, never an API key, with a tool allowlist and no web access. An issue the agent handed back waits for a person. Idle rounds use no Claude.
 - **QA agent server** (`scripts/qa-agent/`): `curl … | sudo bash` installs Claude Code, the CLI and a hardened `annotate-watch@<site>` systemd service on Ubuntu. `annotate-agent login / add / logs` manage it, with one deploy key per site. The Worker serves the CLI at `/dl/annotate.mjs`.
 

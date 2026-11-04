@@ -12,13 +12,14 @@
   "type": "module",
   "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "build": "pnpm --filter @annotate/widget build",
+    "build": "pnpm --filter @annotate/widget build && pnpm --filter @annotate/dashboard build",
     "package:plugin": "scripts/package-plugin.sh",
     "deploy": "scripts/deploy.sh",
     "dev:worker": "pnpm --filter @annotate/worker dev",
     "dev:widget": "pnpm --filter @annotate/widget dev",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "dev:dashboard": "pnpm --filter @annotate/dashboard dev"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

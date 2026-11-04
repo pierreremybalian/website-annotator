@@ -28,6 +28,7 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm -r test
       - run: pnpm --filter @annotate/widget build
+      - run: pnpm --filter @annotate/dashboard build
 
       # Worker secrets (Trello key, encryption keys) live in Cloudflare and survive deploys;
       # scripts/deploy.sh is only needed to rotate them.

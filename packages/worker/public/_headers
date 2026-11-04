@@ -1,0 +1,8 @@
+# Static assets only (the Worker sets the same on the dashboard's deep-link fallback, src/index.ts).
+/app/*
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  Cache-Control: no-cache
+/app/assets/*
+  Cache-Control: public, max-age=31536000, immutable

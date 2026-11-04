@@ -450,3 +450,91 @@ export interface LoginStartRequest {
 export interface LoginDoneResponse {
   next: string;
 }
+
+export interface AppTrelloStatus {
+  boardName: string;
+  boardUrl: string;
+  /** The Trello login behind the sync stopped working; reconnect to resume. */
+  revoked: boolean;
+  /** Last failed push, if any. */
+  error: string | null;
+}
+export interface AppProject {
+  id: string;
+  orgId: string;
+  name: string;
+  /** The caller's role in the project's org. */
+  role: Role;
+  origins: string[];
+  ignoreQuery: boolean;
+  /** Null when the project doesn't sync to Trello. */
+  trello: AppTrelloStatus | null;
+  counts: Record<IssueStatus, number>;
+  createdAt: string;
+  /** Members and up: what installing the widget needs. */
+  install?: {
+    projectKey: string;
+    accessKey: string;
+    /** The <script> tag. */
+    snippet: string;
+    endpoint: string;
+  };
+}
+/** GET /v1/app/orgs/:org/projects */
+export interface AppProjectsResponse {
+  projects: AppProject[];
+}
+/** POST /v1/app/orgs/:org/projects */
+export interface AppCreateProjectRequest {
+  name: string;
+  origins: string[];
+}
+/** PATCH /v1/app/projects/:id */
+export interface AppUpdateProjectRequest {
+  name?: string;
+  origins?: string[];
+  ignoreQuery?: boolean;
+}
+/** Like the agent's, except screenshotUrl and contextUrl are same-origin paths (/v1/screenshots/…). */
+export interface AppIssue extends AgentIssue {
+  projectId: string;
+  commentCount: number;
+}
+export interface AppIssueDetail extends AgentIssueDetail {
+  projectId: string;
+  /** Members and up. As typed in the widget: unverified. */
+  reporterEmail?: string;
+}
+/** GET /v1/app/projects/:id/issues?status=… (same filters as the agent API; default all but archived) */
+export interface AppIssuesResponse {
+  issues: AppIssue[];
+}
+/** GET / PATCH /v1/app/issues/:id */
+export interface AppIssueResponse {
+  issue: AppIssueDetail;
+}
+/** PATCH /v1/app/issues/:id. Clients may only confirm (review → resolved) or reopen (review/resolved → new, with a comment). */
+export interface AppUpdateIssueRequest {
+  status: IssueStatus;
+  /** Posted with the change, e.g. why it's reopened. */
+  comment?: string;
+}
+export interface AppAgentToken {
+  id: string;
+  label: string;
+  /** Email of whoever created it; null for tokens from before accounts. */
+  createdBy: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+/** GET /v1/app/projects/:id/tokens */
+export interface AppAgentTokensResponse {
+  tokens: AppAgentToken[];
+}
+/** POST /v1/app/projects/:id/tokens: the token is shown once. */
+export interface AppNewAgentTokenResponse {
+  token: AppAgentToken;
+  /** The .annotate.json to put in the site's repository (contains the token). */
+  config: string;
+}

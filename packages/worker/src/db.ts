@@ -23,6 +23,8 @@ export interface ProjectRow {
   /** Last failed push to Trello. */
   trello_error: string | null;
   trello_reconciled_at: number | null;
+  /** The agency (org) the project belongs to; null for projects connected before accounts and not adopted yet. */
+  org_id: string | null;
   next_number: number;
   ignore_query: number;
   created_at: string;

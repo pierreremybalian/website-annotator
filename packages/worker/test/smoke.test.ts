@@ -19,3 +19,15 @@ describe('smoke', () => {
     expect(await decryptToken(env, enc)).toBe('secret-token');
   });
 });
+
+describe('dashboard', () => {
+  it('answers deep links with the app, under its CSP, and 404s missing assets', async () => {
+    const res = await SELF.fetch('http://worker.test/app/p/some-project?issue=x');
+    expect(res.headers.get('Content-Security-Policy')).toContain("script-src 'self'");
+    expect(res.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
+    expect((await SELF.fetch('http://worker.test/app/assets/missing.js')).status).toBe(404);
+    const bare = await SELF.fetch('http://worker.test/app', { redirect: 'manual' });
+    expect(bare.status).toBe(301);
+    expect(bare.headers.get('Location')).toMatch(/\/app\/$/);
+  });
+});

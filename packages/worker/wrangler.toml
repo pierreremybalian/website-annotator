@@ -9,6 +9,11 @@ routes = [{ pattern = "annotate.balian.dev", custom_domain = true }]
 # Routes turn workers.dev off unless it is asked for.
 workers_dev = true
 
+[dev]
+port = 8787
+# Without this, `wrangler dev` hands the Worker requests addressed to the route's host (annotate.balian.dev).
+host = "localhost:8787"
+
 [assets]
 directory = "./public"
 binding = "ASSETS"

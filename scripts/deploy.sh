@@ -29,6 +29,8 @@ set -a; . "./$VARS"; set +a
 : "${TRELLO_SECRET:?TRELLO_SECRET is empty in $VARS}"
 
 pnpm --filter @annotate/widget build
+# The dashboard builds into public/app (served at /app/).
+pnpm --filter @annotate/dashboard build >/dev/null
 # The CLI and the QA agent installer are served from the Worker too (curl … | sudo bash on a server).
 pnpm --filter @annotate/cli build >/dev/null
 mkdir -p public/dl public/qa-agent

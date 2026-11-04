@@ -35,6 +35,22 @@ app.route('/dev', dev); // TRELLO_MOCK only
 
 app.get('/health', (c) => c.json({ ok: true }));
 
+// The dashboard (packages/dashboard) is static, under /app/. A deep link like /app/p/<id> has no file of its own:
+// answer with the app's index.html, with the same headers public/_headers gives the files.
+const DASHBOARD_CSP =
+  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+app.get('/app', (c) => c.redirect('/app/', 301));
+app.get('/app/*', async (c) => {
+  if (c.req.path.startsWith('/app/assets/')) return c.text('Not found', 404);
+  const index = await c.env.ASSETS.fetch(new Request(new URL('/app/', c.req.url)));
+  const res = new Response(index.body, index);
+  res.headers.set('Content-Security-Policy', DASHBOARD_CSP);
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('Referrer-Policy', 'same-origin');
+  res.headers.set('Cache-Control', 'no-cache');
+  return res;
+});
+
 app.notFound((c) => c.json<ApiError>({ error: 'Not found', code: 'not_found' }, 404));
 app.onError((err, c) => {
   console.error(err);
