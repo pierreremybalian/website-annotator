@@ -40,7 +40,7 @@ describe('migration 0005 (D1 as source of truth)', () => {
     await seed();
     const snapshot = { projects: await all('SELECT * FROM projects'), issues: await all('SELECT * FROM issues ORDER BY id'), tokens: await all('SELECT * FROM agent_tokens') };
 
-    await applyD1Migrations(db(), env.TEST_MIGRATIONS);
+    await applyD1Migrations(db(), env.TEST_MIGRATIONS.filter((m) => m.name < '0006'));
 
     // Every old column keeps its value; the new ones start empty.
     const projects = await all('SELECT * FROM projects');

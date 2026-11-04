@@ -22,6 +22,9 @@ bucket_name = "annotate-screenshots"
 [triggers]
 crons = ["*/10 * * * *"]
 
+# The dashboard's address. workers.dev keeps working too: widget tags, the WP plugin and .annotate.json files point at it.
+routes = [{ pattern = "annotate.balian.dev", custom_domain = true }]
+
 [vars]
 # Public base URL of this Worker; used for Trello return_url, webhook callbacks and signed screenshot URLs.
 PUBLIC_URL = "https://annotate.pierre-51f.workers.dev"
@@ -29,6 +32,13 @@ PUBLIC_URL = "https://annotate.pierre-51f.workers.dev"
 ALLOWED_TRELLO_ORG = ""
 # "1" = in-memory fake Trello + /dev routes. Local only: set it in .dev.vars, never here.
 TRELLO_MOCK = "0"
+# Login emails go through Resend; .dev.vars sets "log" (kept in memory, shown at /dev/mail).
+MAIL_PROVIDER = "resend"
+MAIL_FROM = "Annotate <login@balian.dev>"
+# Resend's free 100 a day is shared with balian.dev.
+MAIL_DAILY_CAP = "50"
+# "open" = anyone can log in and create an org. Closed until connecting projects asks for an Annotate login.
+SIGNUP_MODE = "closed"
 
 # Secrets (wrangler secret put ... / .dev.vars locally):
-#   TRELLO_KEY, TRELLO_SECRET, TOKEN_ENC_KEY (base64, 32 bytes), SIGNING_SECRET
+#   TRELLO_KEY, TRELLO_SECRET, TOKEN_ENC_KEY (base64, 32 bytes), SIGNING_SECRET, RESEND_API_KEY

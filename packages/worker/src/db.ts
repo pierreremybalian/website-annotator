@@ -111,6 +111,28 @@ export interface CliSessionRow {
   expires_at: number;
 }
 
+export interface UserRow {
+  id: string;
+  email: string;
+  name: string;
+  email_verified_at: string | null;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export interface LoginTokenRow {
+  id: string;
+  kind: 'login' | 'invite';
+  email: string;
+  link_hash: string;
+  code_hash: string | null;
+  attempts: number;
+  next: string | null;
+  created_at: number;
+  expires_at: number;
+  used_at: number | null;
+}
+
 export const nowIso = () => new Date().toISOString();
 
 /** URL-safe random id. */

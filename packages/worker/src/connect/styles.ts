@@ -154,12 +154,18 @@ footer.bar {
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field.wide { grid-column: 1 / -1; }
 .field span { font-size: 12.5px; color: var(--muted); font-weight: 550; }
-select, input[type="url"], input[type="text"] {
+select, input[type="url"], input[type="text"], input[type="email"] {
   width: 100%; min-width: 0; height: 38px; padding: 0 10px;
   border: 1px solid var(--border); border-radius: 8px;
   background: var(--surface); color: var(--text); font: inherit; font-size: 14px;
 }
 .hint { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
+/* Login */
+.stack { display: grid; gap: 10px; margin: 0 0 12px; }
+.stack input { height: 44px; font-size: 16px; }
+input.code { height: 58px; font-size: 28px; letter-spacing: .45em; text-align: center; font-variant-numeric: tabular-nums; padding-left: .45em; }
+.link-row { display: flex; justify-content: center; gap: 6px; margin-top: 14px; font-size: 14px; color: var(--muted); }
+.link-row button { border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; padding: 0; }
 .msg { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--danger-soft); color: var(--danger); font-size: 14px; }
 
 /* Result & status */

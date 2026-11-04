@@ -6,6 +6,7 @@ import { apiError } from '../auth';
 import { encryptToken, sha256Hex } from '../crypto';
 import { MOCK_TOKEN, mockAddComment, mockMoveCard, mockTrelloState } from '../trello';
 import { ingestAction } from '../ingest';
+import { sentMail } from '../mail';
 
 export const DEV_PROJECT = {
   id: 'dev',
@@ -20,6 +21,20 @@ export const DEV_PROJECT = {
   /** Agent API token for the dev project (stored hashed, like real ones). */
   agentToken: 'at_dev-token',
 };
+
+/** The dev agency and its owner; both dev projects belong to it. Log in as DEV_USER (the code is in /dev/mail). */
+export const DEV_ORG = { id: 'dev-org', name: 'Dev agency' };
+export const DEV_USER = { id: 'dev-user', email: 'dev@annotate.test', name: 'Dev Owner' };
+
+async function seedOrg(c: Context<AppEnv>) {
+  const now = nowIso();
+  await c.env.DB.batch([
+    c.env.DB.prepare('INSERT OR IGNORE INTO orgs (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').bind(DEV_ORG.id, DEV_ORG.name, now, now),
+    c.env.DB.prepare('INSERT OR IGNORE INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)').bind(DEV_USER.id, DEV_USER.email, DEV_USER.name, now),
+    c.env.DB.prepare("INSERT OR IGNORE INTO memberships (org_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(DEV_ORG.id, DEV_USER.id, now),
+    c.env.DB.prepare("UPDATE projects SET org_id = ? WHERE id IN ('dev', 'dev-native') AND org_id IS NULL").bind(DEV_ORG.id),
+  ]);
+}
 
 /** A dev project without a Trello board: `/dev/seed?trello=0`. */
 export const DEV_NATIVE_PROJECT = {
@@ -53,6 +68,7 @@ async function seedNative(c: Context<AppEnv>) {
   await c.env.DB.prepare(`INSERT OR REPLACE INTO agent_tokens (id, project_id, token_hash, label, created_at) VALUES ('dev-native-agent', ?, ?, 'dev', ?)`)
     .bind(p.id, await sha256Hex(p.agentToken), now)
     .run();
+  await seedOrg(c);
   return c.json({ projectId: p.id, projectKey: p.publicKey, accessKey: p.accessKey, agentToken: p.agentToken, boardName: null, boardUrl: null, endpoint: c.env.PUBLIC_URL });
 }
 
@@ -81,6 +97,7 @@ async function seed(c: Context<AppEnv>) {
   await c.env.DB.prepare(`INSERT OR REPLACE INTO agent_tokens (id, project_id, token_hash, label, created_at) VALUES ('dev-agent', ?, ?, 'dev', ?)`)
     .bind(projectId, await sha256Hex(p.agentToken), now)
     .run();
+  await seedOrg(c);
   return c.json({
     projectId,
     projectKey: p.publicKey,
@@ -125,6 +142,9 @@ app.post('/delete-card', async (c) => {
   await deliver(c, body.cardId, { type: 'deleteCard' });
   return c.json({ ok: true });
 });
+
+/** Mail that would have been sent (no MAIL_PROVIDER in dev), newest first. */
+app.get('/mail', (c) => c.json({ mail: [...sentMail()].reverse() }));
 
 app.get('/state', (c) => {
   const s = mockTrelloState();

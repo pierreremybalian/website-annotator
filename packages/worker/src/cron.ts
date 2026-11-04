@@ -1,6 +1,6 @@
 // Every 10 minutes (wrangler.toml [triggers]): retry failed pushes to Trello, import pre-0.3 comments, pull one
-// board to catch missed webhooks, and drop expired sessions. Each step is small so a run stays well inside the
-// Worker's subrequest and CPU limits; whatever's left waits for the next run.
+// board to catch missed webhooks, and drop expired sessions, login tokens and rate-limit windows. Each step is
+// small, so a run stays well inside the Worker's subrequest and CPU limits; whatever's left waits for the next.
 
 import type { Env } from './env';
 import { hasTrello, type IssueRow, type ProjectRow } from './db';
@@ -8,6 +8,7 @@ import { push } from './sync';
 import { importComments, reconcileBoard } from './ingest';
 import { TrelloError } from './trello';
 import { markTokenRevoked } from './auth';
+import { DAY } from './rate-limit';
 
 const BATCH = 10;
 
@@ -78,5 +79,8 @@ async function cleanup(env: Env) {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM connect_sessions WHERE expires_at < ?').bind(now),
     env.DB.prepare('DELETE FROM cli_sessions WHERE expires_at < ?').bind(now),
+    env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now),
+    env.DB.prepare('DELETE FROM login_tokens WHERE expires_at < ?').bind(now - DAY),
+    env.DB.prepare('DELETE FROM rate_limits WHERE window_start < ?').bind(now - 2 * DAY),
   ]);
 }

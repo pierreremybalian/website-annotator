@@ -393,3 +393,60 @@ export interface CliPollResponse {
   status: 'done';
   result: CliResult;
 }
+
+// ---------------------------------------------------------------------------
+// Accounts and the dashboard (0.3): /login/* pages and the /v1/app/* JSON API (session cookie, same origin only).
+
+/** owner, admin and member see every project in the org; a client sees only the projects they're added to. */
+export type Role = 'owner' | 'admin' | 'member' | 'client';
+
+export interface AppUser {
+  id: string;
+  email: string;
+  name: string;
+}
+export interface AppOrg {
+  id: string;
+  name: string;
+  /** The caller's role in it. */
+  role: Role;
+}
+/** GET /v1/app/me */
+export interface AppMe {
+  user: AppUser;
+  orgs: AppOrg[];
+  /** Whether the caller may create an org (POST /v1/app/orgs). */
+  canCreateOrg: boolean;
+}
+export interface AppMember {
+  userId: string;
+  email: string;
+  name: string;
+  role: Role;
+  /** False until they log in for the first time. */
+  verified: boolean;
+  /** Clients only: the projects they see. */
+  projectIds: string[];
+  createdAt: string;
+}
+/** GET /v1/app/orgs/:org/members */
+export interface AppMembersResponse {
+  members: AppMember[];
+}
+/** POST /v1/app/orgs/:org/members */
+export interface AppInviteRequest {
+  email: string;
+  role: Role;
+  /** Required for clients: the org's projects they see. */
+  projectIds?: string[];
+}
+/** POST /login/start */
+export interface LoginStartRequest {
+  email: string;
+  /** Same-origin path to continue to, e.g. /app/ */
+  next?: string;
+}
+/** POST /login/code and POST /login/verify answer with where to go next. */
+export interface LoginDoneResponse {
+  next: string;
+}

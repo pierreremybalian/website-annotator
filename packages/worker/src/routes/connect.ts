@@ -403,9 +403,10 @@ app.post('/finish', async (c) => {
            trello_board_url = ?, new_list_id = ?, done_list_ids = ?, review_list_id = ?, webhook_id = ?, token_revoked = 0, updated_at = ? WHERE id = ?`,
       ).bind(JSON.stringify([...origins]), ...common, now, existing.id)
     : env.DB.prepare(
+        // Until connecting asks for an Annotate login, new projects join the org the old ones were moved to.
         `INSERT INTO projects (id, name, public_key, access_key, allowed_origins, trello_token_enc, trello_member_id, trello_board_id,
-           trello_board_name, trello_board_url, new_list_id, done_list_ids, review_list_id, webhook_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           trello_board_name, trello_board_url, new_list_id, done_list_ids, review_list_id, webhook_id, created_at, updated_at, org_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT value FROM settings WHERE key = 'legacy_org'))`,
       ).bind(projectId, projectName, publicKey, accessKey, JSON.stringify([...origins]), ...common, now, now);
 
   const base = publicBase(env);

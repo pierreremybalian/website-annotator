@@ -11,11 +11,16 @@ import webhook from './routes/webhook';
 import dev from './routes/dev';
 import agent from './routes/agent';
 import cli from './routes/cli';
+import auth, { logout } from './routes/auth';
+import appApi from './routes/app';
+import { sameOrigin } from './session';
 import { scheduled } from './cron';
 
 const app = new Hono<AppEnv>();
 
-app.use('/v1/*', v1Cors);
+// The dashboard API is same-origin only: no CORS, so cross-origin preflights fail.
+app.use('/v1/*', (c, next) => (c.req.path.startsWith('/v1/app/') ? next() : v1Cors(c, next)));
+app.route('/v1/app', appApi);
 app.route('/v1/issues', issues);
 app.route('/v1/issues', comments);
 app.route('/v1/screenshots', screenshots);
@@ -23,6 +28,8 @@ app.route('/v1/project', project);
 app.route('/v1/agent', agent);
 app.route('/cli', cli);
 app.route('/connect', connect);
+app.route('/login', auth);
+app.post('/logout', sameOrigin, logout);
 app.route('/trello/webhook', webhook);
 app.route('/dev', dev); // TRELLO_MOCK only
 
