@@ -39,6 +39,7 @@ app.get('/health', (c) => c.json({ ok: true }));
 // answer with the app's index.html, with the same headers public/_headers gives the files.
 const DASHBOARD_CSP =
   "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+app.get('/', (c) => c.redirect('/app/', 302));
 app.get('/app', (c) => c.redirect('/app/', 301));
 app.get('/app/*', async (c) => {
   if (c.req.path.startsWith('/app/assets/')) return c.text('Not found', 404);

@@ -28,6 +28,8 @@ describe('dashboard', () => {
     expect((await SELF.fetch('http://worker.test/app/assets/missing.js')).status).toBe(404);
     const bare = await SELF.fetch('http://worker.test/app', { redirect: 'manual' });
     expect(bare.status).toBe(301);
+    const root = await SELF.fetch('http://worker.test/', { redirect: 'manual' });
+    expect(new URL(root.headers.get('Location')!, 'http://worker.test').pathname).toBe('/app/');
     expect(bare.headers.get('Location')).toMatch(/\/app\/$/);
   });
 });
